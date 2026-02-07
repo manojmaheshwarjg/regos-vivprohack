@@ -1,19 +1,21 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna } from 'lucide-react';
+import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeClinicalQuery } from '../services/geminiService';
-import { MOCK_TRIALS, DOMAIN_KNOWLEDGE } from '../constants';
+import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations } from '../services/geminiService';
+import { executeSearch } from '../services/searchEngine';
+import { generateQueryEmbedding } from '../services/embeddingService';
+import { DOMAIN_KNOWLEDGE } from '../constants';
 import { ClinicalTrial, QueryAnalysis } from '../types';
 
 // Helper: Domain Knowledge Expansion
 const expandSearchTerms = (analysis: QueryAnalysis | null, rawQuery: string): string[] => {
   const terms = new Set<string>();
-  
+
   // Add raw terms
   terms.add(rawQuery.toLowerCase());
-  
+
   // Add analysis terms
   if (analysis) {
     if (analysis.condition) terms.add(analysis.condition.toLowerCase());
@@ -37,15 +39,30 @@ const expandSearchTerms = (analysis: QueryAnalysis | null, rawQuery: string): st
   return Array.from(terms);
 };
 
+// Helper: Detect if query is a question that should trigger AI answer generation
+const isQuestionQuery = (query: string): boolean => {
+  const lowerQuery = query.toLowerCase().trim();
+  const questionPatterns = [
+    /\?$/,                                    // Ends with question mark
+    /^(how many|how much|what|which|when|where|who|why|can you|could you|tell me|show me|find me|are there|is there)/i,
+    /\b(trials? have been|studies? have been|research has been)\b/i
+  ];
+
+  return questionPatterns.some(pattern => pattern.test(lowerQuery));
+};
+
 export const ClinicalSearch: React.FC = () => {
   const [query, setQuery] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<QueryAnalysis | null>(null);
   const [results, setResults] = useState<ClinicalTrial[]>([]);
   const [searched, setSearched] = useState(false);
+  const [validationError, setValidationError] = useState<{ score: number; reason: string } | null>(null);
+  const [aiAnswer, setAiAnswer] = useState<{ answer: string; citations: string[] } | null>(null);
+  const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
   
-  // Model Switcher State
-  const [searchMode, setSearchMode] = useState<'hybrid' | 'semantic' | 'keyword'>('hybrid');
+  // Model Switcher State (removed 'semantic' - use hybrid for AI-powered search)
+  const [searchMode, setSearchMode] = useState<'hybrid' | 'keyword'>('hybrid');
   
   // Autocomplete State
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -73,21 +90,30 @@ export const ClinicalSearch: React.FC = () => {
       setSuggestions([]);
       return;
     }
-    
+
     const lowerQ = query.toLowerCase();
     const uniqueSuggestions = new Set<string>();
 
-    // 1. Check Trials
-    MOCK_TRIALS.forEach(t => {
-      if (t.title.toLowerCase().includes(lowerQ)) uniqueSuggestions.add(t.title);
-      t.conditions.forEach(c => {
-         if (c.toLowerCase().includes(lowerQ)) uniqueSuggestions.add(c + " trials");
-      });
-    });
-
-    // 2. Check Domain Knowledge keys
+    // Check Domain Knowledge keys for suggestions
     Object.keys(DOMAIN_KNOWLEDGE).forEach(k => {
       if (k.includes(lowerQ)) uniqueSuggestions.add(k + " trials");
+    });
+
+    // Add common search patterns
+    const commonPatterns = [
+      'diabetes trials',
+      'cancer immunotherapy',
+      'heart disease',
+      'phase 3 recruiting',
+      'pediatric studies',
+      'gene therapy',
+      'vaccine trials'
+    ];
+
+    commonPatterns.forEach(pattern => {
+      if (pattern.toLowerCase().includes(lowerQ)) {
+        uniqueSuggestions.add(pattern);
+      }
     });
 
     setSuggestions(Array.from(uniqueSuggestions).slice(0, 5));
@@ -104,98 +130,123 @@ export const ClinicalSearch: React.FC = () => {
     setSearched(true);
     setResults([]);
     setAnalysis(null);
+    setAiAnswer(null); // Reset AI answer
     setActiveFilters({ phases: new Set(), statuses: new Set(), sponsors: new Set() }); // Reset filters on new search
 
     try {
-      // 1. Intelligent Parsing
+      console.log('🔍 Starting Elasticsearch search:', searchQuery, 'Mode:', searchMode);
+
+      // 1. Query Validation (for hybrid mode that uses embeddings)
+      if (searchMode === 'hybrid') {
+        console.log('🔒 Validating query for medical relevance...');
+        const validation = await validateMedicalQuery(searchQuery);
+
+        if (!validation.isValid) {
+          console.warn(`❌ Query blocked: "${searchQuery}" (score: ${validation.score}/100)`);
+          setValidationError({ score: validation.score, reason: validation.reason });
+          setIsAnalyzing(false);
+          return; // Block the search
+        }
+        console.log(`✓ Query validated (score: ${validation.score}/100)`);
+      }
+
+      // 2. Intelligent Parsing
       const parsed = await analyzeClinicalQuery(searchQuery);
       setAnalysis(parsed);
+      console.log('✓ Query analyzed:', parsed);
 
-      // 2. Expand Terms (Domain Knowledge)
-      const expandedTerms = expandSearchTerms(parsed, searchQuery);
-
-      // 3. Hybrid Scoring Engine
-      const scoredResults = MOCK_TRIALS.map(trial => {
-        let keywordScore = 0;
-        let semanticScore = 0; 
-        let filterBoost = 0;
-        const reasons: string[] = [];
-
-        // A. Semantic/Keyword Match (Mocked)
-        expandedTerms.forEach(term => {
-          if (trial.conditions.some(c => c.toLowerCase().includes(term))) {
-             semanticScore += 40;
-             if (!reasons.includes('Condition Match')) reasons.push('Condition Match');
-          }
-          if (trial.intervention.toLowerCase().includes(term)) {
-             semanticScore += 30;
-             if (!reasons.includes('Intervention Match')) reasons.push('Intervention Match');
-          }
-          if (trial.title.toLowerCase().includes(term)) {
-             keywordScore += 20;
-          }
-        });
-
-        // B. Filter Boosting (Structured Data)
-        if (parsed.phase && trial.phase === parsed.phase) {
-          filterBoost += 20;
-          reasons.push('Exact Phase Match');
+      // 3. Generate embedding for hybrid search
+      let queryEmbedding: number[] | null = null;
+      if (searchMode === 'hybrid') {
+        console.log('🧠 Generating query embedding...');
+        queryEmbedding = await generateQueryEmbedding(searchQuery);
+        if (queryEmbedding) {
+          console.log(`✓ Embedding generated (${queryEmbedding.length} dims)`);
+        } else {
+          console.warn('⚠ Embedding generation failed, falling back to keyword search');
         }
-        
-        if (parsed.status) {
-           const statusKey = parsed.status.toLowerCase();
-           const trialStatusLower = trial.status.toLowerCase();
-           if (trialStatusLower.includes(statusKey) || 
-               (DOMAIN_KNOWLEDGE[statusKey] && DOMAIN_KNOWLEDGE[statusKey].some(s => trialStatusLower.includes(s)))
-           ) {
-              filterBoost += 15;
-              reasons.push('Status Match');
-           }
-        }
+      }
 
-        if (parsed.sponsor && trial.sponsor.toLowerCase().includes(parsed.sponsor.toLowerCase())) {
-          filterBoost += 15;
-          reasons.push('Sponsor Match');
-        }
+      // 4. Build filters from parsed query
+      const filters: any = {};
+      if (parsed.phase) {
+        filters.phases = [parsed.phase];
+      }
+      if (parsed.status) {
+        filters.statuses = [parsed.status];
+      }
+      if (parsed.sponsor) {
+        filters.sponsors = [parsed.sponsor];
+      }
 
-        if (parsed.location) {
-            const locMatch = trial.locations.some(l => 
-                l.city.toLowerCase().includes(parsed.location!.toLowerCase()) || 
-                l.state.toLowerCase().includes(parsed.location!.toLowerCase())
-            );
-            if (locMatch) {
-                filterBoost += 10;
-                reasons.push('Location Match');
-            }
-        }
-
-        // Adjust scores based on search mode
-        if (searchMode === 'keyword') {
-            semanticScore = 0;
-        } else if (searchMode === 'semantic') {
-            keywordScore = keywordScore * 0.5;
-        }
-
-        // Calculate Final Score
-        const totalScore = Math.min(100, keywordScore + semanticScore + filterBoost);
-
-        return { 
-          ...trial, 
-          relevanceScore: totalScore, 
-          matchReasons: reasons,
-          matchDetails: { keywordScore, semanticScore, filterBoost }
-        };
+      // 5. Perform Elasticsearch search
+      console.log('📡 Calling Elasticsearch...');
+      const searchResult = await executeSearch({
+        query: searchQuery,
+        mode: searchMode,
+        queryAnalysis: parsed,
+        queryEmbedding: queryEmbedding || undefined,
+        filters,
+        page: 1,
+        pageSize: 50
       });
 
-      // Filter and Sort
-      const filtered = scoredResults
-        .filter(t => t.relevanceScore && t.relevanceScore > 10) // Threshold
-        .sort((a, b) => (b.relevanceScore || 0) - (a.relevanceScore || 0));
+      console.log(`✓ Found ${searchResult.total} results in ${searchResult.took}ms`);
 
-      setResults(filtered);
+      // 6. Transform ES results to match component expectations
+      const transformedResults: ClinicalTrial[] = searchResult.trials.map((esDoc: any) => ({
+        id: esDoc.nct_id || esDoc._id,
+        nctId: esDoc.nct_id,
+        title: esDoc.brief_title || esDoc.title || 'Untitled Study',
+        sponsor: esDoc.source || 'Unknown Sponsor',
+        phase: esDoc.phase || 'N/A',
+        status: esDoc.overall_status || esDoc.status || 'Unknown',
+        conditions: Array.isArray(esDoc.conditions)
+          ? esDoc.conditions.map((c: any) => typeof c === 'object' ? c.condition_name || c.name || String(c) : String(c))
+          : [],
+        intervention: Array.isArray(esDoc.interventions) && esDoc.interventions.length > 0
+          ? (typeof esDoc.interventions[0] === 'object'
+              ? esDoc.interventions[0].intervention_name || esDoc.interventions[0].name || 'N/A'
+              : String(esDoc.interventions[0]))
+          : 'N/A',
+        enrollment: typeof esDoc.enrollment === 'number' ? esDoc.enrollment : 0,
+        locations: Array.isArray(esDoc.facilities)
+          ? esDoc.facilities.slice(0, 3).map((f: any) => ({
+              city: f.city || 'Unknown',
+              state: f.state || f.country || 'Unknown',
+              country: f.country || 'Unknown'
+            }))
+          : [],
+        startDate: esDoc.start_date || null,
+        description: esDoc.brief_summaries_description || esDoc.detailed_description || 'No description available',
+        relevanceScore: esDoc._score ? Math.min(100, esDoc._score * 10) : 50,
+        matchReasons: esDoc.matchReasons || ['Elasticsearch Match'],
+        matchDetails: esDoc.matchDetails || {}
+      }));
+
+      setResults(transformedResults);
+      console.log('✓ Results transformed and displayed');
+
+      // 7. Generate AI answer for question-type queries
+      if (isQuestionQuery(searchQuery) && transformedResults.length > 0) {
+        setIsGeneratingAnswer(true);
+        console.log('🤖 Detected question query, generating AI answer...');
+
+        try {
+          const answer = await generateAnswerWithCitations(searchQuery, transformedResults);
+          setAiAnswer(answer);
+          console.log('✓ AI answer generated with', answer.citations.length, 'citations');
+        } catch (answerErr) {
+          console.error('⚠ Failed to generate AI answer:', answerErr);
+          // Silently fail - results are still shown
+        } finally {
+          setIsGeneratingAnswer(false);
+        }
+      }
 
     } catch (err) {
-      console.error(err);
+      console.error('❌ Search error:', err);
+      alert(`Search failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -225,6 +276,81 @@ export const ClinicalSearch: React.FC = () => {
 
   return (
     <div className={`max-w-[1400px] mx-auto w-full min-h-full flex flex-col relative animate-in fade-in duration-500 transition-all px-4 ${!searched ? 'pb-24' : 'pb-12'}`}>
+
+      {/* Query Validation Error Modal */}
+      {validationError && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white rounded-xl shadow-2xl max-w-md mx-4 overflow-hidden border border-slate-200"
+          >
+            <div className="p-6 border-b border-slate-100">
+              <div className="flex items-start gap-3">
+                <div className="p-2 bg-slate-100 rounded-lg">
+                  <AlertCircle className="w-5 h-5 text-slate-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-semibold text-slate-900">Unable to Process Query</h3>
+                  <p className="text-sm text-slate-500 mt-1">
+                    {validationError.score < 20
+                      ? 'This query does not appear to be related to clinical research or medical topics.'
+                      : validationError.score < 40
+                      ? 'This query has low medical relevance. Please refine your search with clinical terms.'
+                      : 'Query validation failed. Try adding more specific medical terminology.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6">
+              <div className="mb-4">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-2">Search Requirements</p>
+                <p className="text-sm text-slate-700 leading-relaxed">
+                  Hybrid search mode requires queries with medical or clinical research relevance. Include at least one of the following:
+                </p>
+              </div>
+
+              <div className="space-y-2 mb-6">
+                <div className="flex items-start gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">•</span>
+                  <span>Disease or condition names (e.g., diabetes, lung cancer, hypertension)</span>
+                </div>
+                <div className="flex items-start gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">•</span>
+                  <span>Drug or intervention names (e.g., pembrolizumab, chemotherapy)</span>
+                </div>
+                <div className="flex items-start gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">•</span>
+                  <span>Trial phases or status (e.g., Phase 3, recruiting)</span>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    setValidationError(null);
+                    setQuery('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-brand-600 text-white rounded-lg text-sm font-medium hover:bg-brand-700 transition-colors"
+                >
+                  Modify Query
+                </button>
+                <button
+                  onClick={() => {
+                    setValidationError(null);
+                    setSearchMode('keyword');
+                  }}
+                  className="flex-1 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Switch to Keywords
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
       
       {/* Search Header / Hero */}
       {/* Changed py-20 md:py-32 to py-10 md:py-16 to reduce gap */}
@@ -294,18 +420,18 @@ export const ClinicalSearch: React.FC = () => {
                 <div className="flex items-center justify-between pt-4 border-t border-slate-100">
                     {/* Model Switcher */}
                     <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg">
-                        {(['hybrid', 'semantic', 'keyword'] as const).map((mode) => (
-                            <button 
+                        {(['hybrid', 'keyword'] as const).map((mode) => (
+                            <button
                                 key={mode}
                                 type="button"
                                 onClick={() => setSearchMode(mode)}
                                 className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase tracking-wide transition-all ${
-                                    searchMode === mode 
-                                    ? 'bg-white text-brand-700 shadow-sm ring-1 ring-black/5' 
+                                    searchMode === mode
+                                    ? 'bg-white text-brand-700 shadow-sm ring-1 ring-black/5'
                                     : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'
                                 }`}
                             >
-                                {mode}
+                                {mode === 'hybrid' ? 'Hybrid (AI + Keywords)' : 'Keywords Only'}
                             </button>
                         ))}
                     </div>
@@ -494,6 +620,76 @@ export const ClinicalSearch: React.FC = () => {
                     )}
                   </AnimatePresence>
 
+                  {/* AI Answer Card */}
+                  <AnimatePresence>
+                    {aiAnswer && !isAnalyzing && (
+                      <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="bg-white rounded-xl border border-brand-200 shadow-xl overflow-hidden relative"
+                      >
+                        {/* Gradient accent bar */}
+                        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-brand-500 via-brand-600 to-brand-700"></div>
+
+                        <div className="p-6 pt-7">
+                          <div className="flex items-start gap-4">
+                            <div className="p-3 bg-gradient-to-br from-brand-500 to-brand-600 rounded-xl shadow-md shrink-0">
+                              <Sparkles className="w-6 h-6 text-white" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-4">
+                                <h3 className="text-xs font-bold text-brand-700 uppercase tracking-widest">AI-Generated Answer</h3>
+                                {isGeneratingAnswer && (
+                                  <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
+                                )}
+                              </div>
+                              <div className="prose prose-slate max-w-none">
+                                <p className="text-[15px] text-slate-700 leading-relaxed font-normal tracking-tight">
+                                  {aiAnswer.answer}
+                                </p>
+                              </div>
+                              {aiAnswer.citations.length > 0 && (
+                                <div className="mt-5 pt-5 border-t border-slate-100">
+                                  <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">
+                                    <div className="p-1 bg-brand-50 rounded">
+                                      <Check className="w-3 h-3 text-brand-600" />
+                                    </div>
+                                    Referenced Trials ({aiAnswer.citations.length})
+                                  </div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {aiAnswer.citations.slice(0, 10).map((nctId, idx) => (
+                                      <a
+                                        key={idx}
+                                        href={`#${nctId}`}
+                                        className="group px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono text-slate-700 hover:bg-brand-50 hover:border-brand-300 hover:text-brand-700 transition-all shadow-sm hover:shadow-md"
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          // Scroll to the cited trial in results
+                                          const element = document.querySelector(`[data-nct-id="${nctId}"]`);
+                                          if (element) {
+                                            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                            // Brief highlight effect
+                                            element.classList.add('ring-2', 'ring-brand-400', 'ring-offset-2');
+                                            setTimeout(() => {
+                                              element.classList.remove('ring-2', 'ring-brand-400', 'ring-offset-2');
+                                            }, 2000);
+                                          }
+                                        }}
+                                      >
+                                        <span className="group-hover:font-semibold transition-all">{nctId}</span>
+                                      </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
                   {/* Results List */}
                   {isAnalyzing ? (
                       <div className="space-y-4">
@@ -511,8 +707,9 @@ export const ClinicalSearch: React.FC = () => {
                       </div>
                   ) : displayedResults.length > 0 ? (
                       displayedResults.map((trial) => (
-                          <motion.div 
+                          <motion.div
                             key={trial.nctId}
+                            data-nct-id={trial.nctId}
                             initial={{ opacity: 0, y: 10 }}
                             animate={{ opacity: 1, y: 0 }}
                             className="bg-white rounded-xl border border-slate-200 p-0 shadow-sm hover:shadow-lg transition-all group relative overflow-hidden"
