@@ -20,6 +20,34 @@ RegOS is a next-generation clinical trial search platform powered by Elasticsear
 
 ---
 
+## Screenshots
+
+### Clinical Trial Search
+![Clinical Trial Search Interface](screenshots/search-main.png)
+*Intelligent search with AI-powered answers and medical query validation*
+
+### Search Results with AI Answer
+![Search Results](screenshots/search-result.png)
+*Hybrid search results with conversational AI answers and citations*
+
+### Conversational Chat
+![Multi-Session Chat](screenshots/chat-main.png)
+*Multi-session chat interface with context-aware responses*
+
+### Regulatory Intelligence Feed
+![Regulatory Intelligence](screenshots/reg-intel.png)
+*Real-time pharmaceutical news with AI-generated executive summaries*
+
+### eCTD Document Management
+![Document Classification](screenshots/ectd-docs.png)
+*Automated eCTD document classification and organization*
+
+### Multi-Agent Workflow
+![Agent Orchestration](screenshots/agent-workflow.png)
+*Coordinated AI agents for regulatory submission processing*
+
+---
+
 ## Platform Features
 
 ### Implemented Features
