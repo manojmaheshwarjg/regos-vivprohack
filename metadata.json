@@ -1,0 +1,5 @@
+{
+  "name": "RegOS",
+  "description": "Enterprise-grade autonomous regulatory operating system for pharmaceutical submissions. Features multi-agent orchestration and TruthLayer verification.",
+  "requestFramePermissions": []
+}
