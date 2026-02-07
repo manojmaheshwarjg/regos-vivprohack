@@ -167,7 +167,7 @@ sequenceDiagram
 **Responsibility**: Orchestrate hybrid search with Elasticsearch
 
 **Key Features**:
-- **Three search modes**: Keyword (BM25), Semantic (kNN), Hybrid (RRF)
+- **Two search modes**: Keyword (BM25), Hybrid (RRF combining BM25 + kNN)
 - **Function score boosting**: Prioritize recruiting trials, recent studies, high enrollment
 - **Query analysis integration**: Extract structured filters from natural language
 - **Similarity thresholding**: Filter low-quality vector matches (threshold: 0.55)
@@ -284,14 +284,7 @@ graph LR
         C --> D[Top 50 Results]
     end
 
-    subgraph "Semantic Mode"
-        E[User Query] --> F[Generate Embedding]
-        F --> G[kNN Search]
-        G --> H[Similarity Filter >= 0.55]
-        H --> I[Top 50 Results]
-    end
-
-    subgraph "Hybrid Mode"
+    subgraph "Hybrid Mode - Recommended"
         J[User Query] --> K[Parallel Execution]
         K --> L[BM25 Retriever]
         K --> M[kNN Retriever]
@@ -544,9 +537,9 @@ boost_factors:
 - Specific drug names
 - Exact medical conditions
 
-### Mode 2: Hybrid Search (RRF)
+### Mode 2: Hybrid Search (RRF) - Recommended Default
 
-**Use Case**: Most queries (recommended default)
+**Use Case**: Most queries (optimal for natural language)
 
 **Algorithm**:
 ```
@@ -564,21 +557,7 @@ Rank constant: 60
 - Natural language questions
 - Complex queries with multiple concepts
 - Balancing precision and recall
-
-### Mode 3: Pure Semantic (kNN Only)
-
-**Use Case**: Conceptual similarity (disabled in UI)
-
-**Algorithm**:
-```
-cosine_similarity(query_embedding, trial_embedding) >= 0.55
-```
-
-**Performance**: 7-20ms average
-
-**Best For**:
-- Synonym-heavy queries
-- Concept-based search
+- Question-type queries requiring AI answers
 
 ---
 
