@@ -1,13 +1,16 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight, MessageSquare } from 'lucide-react';
+import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight, MessageSquare, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations, generateRelatedQuestions } from '../services/geminiService';
 import { executeSearch } from '../services/searchEngine';
 import { generateQueryEmbedding } from '../services/embeddingService';
+import { factCheckAnswer } from '../services/factCheckingService';
 import { DOMAIN_KNOWLEDGE } from '../constants';
-import { ClinicalTrial, QueryAnalysis, ChatSession, Message } from '../types';
+import { ClinicalTrial, QueryAnalysis, ChatSession, Message, VerificationStatus, VerificationResult, SearchVerificationIssue } from '../types';
+import { VerifiedText } from './VerifiedText';
+import { VerificationModal } from './VerificationModal';
 
 // Search History Type
 interface SearchHistoryItem {
@@ -81,6 +84,12 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
   // Search History State
   const [searchHistory, setSearchHistory] = useState<SearchHistoryItem[]>([]);
   const [showHistory, setShowHistory] = useState(false);
+
+  // Verification State
+  const [verificationStatus, setVerificationStatus] = useState<VerificationStatus>('not-verified');
+  const [verificationResult, setVerificationResult] = useState<VerificationResult | null>(null);
+  const [selectedIssue, setSelectedIssue] = useState<SearchVerificationIssue | null>(null);
+  const [overriddenIssues, setOverriddenIssues] = useState<Set<string>>(new Set());
 
   // Model Switcher State (removed 'semantic' - use hybrid for AI-powered search)
   const [searchMode, setSearchMode] = useState<'hybrid' | 'keyword'>('hybrid');
@@ -298,6 +307,7 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
             }))
           : [],
         startDate: esDoc.start_date || null,
+        completionDate: esDoc.completion_date || esDoc.primary_completion_date || 'N/A',
         description: esDoc.brief_summaries_description || esDoc.detailed_description || 'No description available',
         relevanceScore: esDoc._score ? Math.min(100, esDoc._score * 10) : 50,
         matchReasons: esDoc.matchReasons || ['Elasticsearch Match'],
@@ -343,6 +353,47 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
       alert(`Search failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  // Verification Handler
+  const handleVerifyAnswer = async () => {
+    if (!aiAnswer || !results) return;
+
+    setVerificationStatus('verifying');
+
+    try {
+      const result = await factCheckAnswer(
+        aiAnswer.answer,
+        aiAnswer.citations,
+        results
+      );
+
+      setVerificationResult(result);
+      setVerificationStatus(result.issues.length > 0 ? 'issues-found' : 'verified');
+
+      console.log('Verification complete:', result);
+    } catch (error) {
+      console.error('Verification failed:', error);
+      setVerificationStatus('not-verified');
+      alert('Verification failed. Please try again.');
+    }
+  };
+
+  // Override Issue Handler
+  const handleOverrideIssue = (issueId: string) => {
+    setOverriddenIssues(prev => new Set(prev).add(issueId));
+
+    // Update verification result to mark issue as overridden
+    if (verificationResult) {
+      const updatedIssues = verificationResult.issues.map(issue =>
+        issue.id === issueId ? { ...issue, isOverridden: true } : issue
+      );
+
+      setVerificationResult({
+        ...verificationResult,
+        issues: updatedIssues
+      });
     }
   };
 
@@ -861,16 +912,62 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
                               <Sparkles className="w-6 h-6 text-white" />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-4">
-                                <h3 className="text-xs font-bold text-brand-700 uppercase tracking-widest">AI-Generated Answer</h3>
-                                {isGeneratingAnswer && (
-                                  <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
+                              <div className="flex items-center justify-between mb-4">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-xs font-bold text-brand-700 uppercase tracking-widest">AI-Generated Answer</h3>
+                                  {isGeneratingAnswer && (
+                                    <Loader2 className="w-4 h-4 text-brand-600 animate-spin" />
+                                  )}
+                                </div>
+
+                                {/* Verification Button */}
+                                {!isGeneratingAnswer && (
+                                  <div className="flex items-center gap-2">
+                                    {verificationStatus === 'not-verified' && (
+                                      <button
+                                        onClick={handleVerifyAnswer}
+                                        className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-brand-700 border border-brand-300 rounded-lg hover:bg-brand-50 transition-all"
+                                      >
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                        Verify Answer
+                                      </button>
+                                    )}
+
+                                    {verificationStatus === 'verifying' && (
+                                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-semibold text-slate-600 bg-slate-100 rounded-lg">
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        Verifying...
+                                      </div>
+                                    )}
+
+                                    {verificationStatus === 'verified' && (
+                                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-green-700 bg-green-100 rounded-lg">
+                                        <ShieldCheck className="w-3.5 h-3.5" />
+                                        ✓ Verified
+                                      </div>
+                                    )}
+
+                                    {verificationStatus === 'issues-found' && verificationResult && (
+                                      <div className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold text-yellow-700 bg-yellow-100 rounded-lg">
+                                        <ShieldAlert className="w-3.5 h-3.5" />
+                                        ⚠ {verificationResult.issues.filter(i => !i.isOverridden).length} Issue{verificationResult.issues.filter(i => !i.isOverridden).length === 1 ? '' : 's'}
+                                      </div>
+                                    )}
+                                  </div>
                                 )}
                               </div>
                               <div className="prose prose-slate max-w-none">
-                                <p className="text-[15px] text-slate-700 leading-relaxed font-normal tracking-tight">
-                                  {aiAnswer.answer}
-                                </p>
+                                {verificationStatus === 'issues-found' && verificationResult ? (
+                                  <VerifiedText
+                                    text={aiAnswer.answer}
+                                    issues={verificationResult.issues}
+                                    onIssueClick={(issue) => setSelectedIssue(issue)}
+                                  />
+                                ) : (
+                                  <p className="text-[15px] text-slate-700 leading-relaxed font-normal tracking-tight">
+                                    {aiAnswer.answer}
+                                  </p>
+                                )}
                               </div>
                               {aiAnswer.citations.length > 0 && (
                                 <div className="mt-5 pt-5 border-t border-slate-100">
@@ -1120,6 +1217,13 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
               </div>
           </div>
       )}
+
+      {/* Verification Modal */}
+      <VerificationModal
+        issue={selectedIssue}
+        onClose={() => setSelectedIssue(null)}
+        onOverride={handleOverrideIssue}
+      />
     </div>
   );
 };

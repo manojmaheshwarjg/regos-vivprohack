@@ -117,3 +117,35 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
 }
+
+// --- Verification Types ---
+
+export type VerificationSeverity = 'critical' | 'warning' | 'info';
+export type VerificationStatus = 'not-verified' | 'verifying' | 'verified' | 'issues-found';
+
+export interface SearchVerificationIssue {
+  id: string;
+  severity: VerificationSeverity;
+  claim: string;  // What the AI claimed
+  sourceData: string;  // What the actual data shows
+  explanation: string;  // Why this is an issue
+  field?: string;  // Which field was checked (e.g., 'enrollment', 'phase')
+  trialId?: string;  // NCT ID if issue is trial-specific
+  startIndex?: number;  // Where in the text the claim appears
+  endIndex?: number;  // End position for highlighting
+  isOverridden?: boolean;  // User acknowledged this issue
+}
+
+export interface VerificationResult {
+  issues: SearchVerificationIssue[];
+  validCitations: string[];  // NCT IDs that exist in results
+  invalidCitations: string[];  // NCT IDs that don't exist (fabricated)
+  statisticalChecks: {
+    totalTrials: number;
+    phaseDistribution: Record<string, number>;
+    statusDistribution: Record<string, number>;
+    claimsVerified: number;
+    claimsFailed: number;
+  };
+  verifiedAt: number;  // Timestamp
+}

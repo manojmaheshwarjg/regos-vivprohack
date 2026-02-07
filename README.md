@@ -40,6 +40,15 @@ RegOS is a next-generation clinical trial search platform powered by Elasticsear
 - Real-time chat history with trial citations
 - Seamless transition from search to conversation
 
+**AI Answer Verification System**
+- LLM-as-Judge fact-checking using Gemini AI for intelligent verification
+- Validates AI-generated answers against source trial data
+- Detects fabricated citations, incorrect statistics, and field-level errors
+- Inline text highlighting with severity indicators (critical/warning/info)
+- Interactive issue modals with side-by-side claim vs. source comparison
+- Manual override system for acknowledged discrepancies
+- Zero-cost verification using existing Gemini API quota
+
 ### Work in Progress
 
 The following features are currently under development:
@@ -641,16 +650,19 @@ Rank constant: 60
 ```
 Regos/
 ├── components/
-│   ├── ClinicalSearch.tsx     # [ACTIVE] Search interface + AI answer generation
-│   ├── Chat.tsx               # [ACTIVE] Multi-session conversational chat with trial context
-│   ├── AgentWorkflow.tsx      # [WIP] Multi-agent orchestration UI
-│   ├── Dashboard.tsx          # [WIP] Analytics dashboard
-│   ├── DocumentsView.tsx      # [WIP] File upload + eCTD classification
-│   └── TruthLayer.tsx         # [WIP] Document verification
+│   ├── ClinicalSearch.tsx      # [ACTIVE] Search interface + AI answer generation + verification
+│   ├── Chat.tsx                # [ACTIVE] Multi-session conversational chat with trial context
+│   ├── VerifiedText.tsx        # [ACTIVE] Inline text highlighting for verification issues
+│   ├── VerificationModal.tsx   # [ACTIVE] Detailed issue comparison modal
+│   ├── AgentWorkflow.tsx       # [WIP] Multi-agent orchestration UI
+│   ├── Dashboard.tsx           # [WIP] Analytics dashboard
+│   ├── DocumentsView.tsx       # [WIP] File upload + eCTD classification
+│   └── TruthLayer.tsx          # [WIP] Document verification
 ├── services/
 │   ├── searchEngine.ts         # Core hybrid search logic (RRF)
 │   ├── embeddingService.ts     # Vector embedding generation + caching
 │   ├── geminiService.ts        # AI query validation + answer generation + chat
+│   ├── factCheckingService.ts  # [ACTIVE] LLM-based fact-checking and verification
 │   └── elasticsearchService.ts # Elasticsearch client wrapper
 ├── server/
 │   ├── api.js                  # Express API proxy for secure ES access
@@ -659,11 +671,46 @@ Regos/
 │   ├── index_trials_win.py     # Python indexing script with embeddings
 │   └── requirements.txt
 ├── constants.ts                # App configuration + domain knowledge
-├── types.ts                    # TypeScript type definitions (includes ChatSession, Message)
+├── types.ts                    # TypeScript type definitions (ChatSession, Message, VerificationResult)
 └── README.md                   # This file
 ```
 
 **Key**: [ACTIVE] = Production-ready, [WIP] = Work in Progress
+
+### Verification System Architecture
+
+The AI answer verification system uses an **LLM-as-Judge** approach where Gemini AI intelligently analyzes generated answers against source data:
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Frontend
+    participant FC as Fact-Checking Service
+    participant Gemini as Gemini AI
+    participant Data as Source Trials
+
+    U->>UI: Click "Verify Answer"
+    UI->>FC: factCheckAnswer(answer, citations, trials)
+    FC->>FC: Validate citations
+    FC->>Gemini: Analyze answer against source data
+    Note over Gemini: Compares claims vs facts<br/>Detects discrepancies<br/>Returns structured JSON
+    Gemini-->>FC: Issues array with severity levels
+    FC-->>UI: VerificationResult
+    UI->>UI: Highlight issues inline
+    U->>UI: Click highlighted text
+    UI->>U: Show detailed modal
+```
+
+**Verification Checks**:
+1. **Citation Validation**: Ensures all NCT IDs exist in search results
+2. **Statistical Verification**: Validates trial counts, phase distributions
+3. **Field-Level Accuracy**: Checks enrollment numbers, phases, sponsors
+4. **Contextual Understanding**: Uses LLM to understand medical terminology
+
+**Issue Severity**:
+- **Critical** (Red): Fabricated citations, severe inaccuracies
+- **Warning** (Yellow): Data mismatches, incorrect numbers
+- **Info** (Blue): Minor discrepancies, incomplete information
 
 ---
 
