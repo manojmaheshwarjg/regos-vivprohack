@@ -149,3 +149,46 @@ export interface VerificationResult {
   };
   verifiedAt: number;  // Timestamp
 }
+
+// --- Regulatory News Types ---
+
+export type NewsCompany = 'Pfizer' | 'Johnson & Johnson' | 'Merck' | 'AbbVie' | 'AstraZeneca';
+export type NewsCategory =
+  | 'FDA Approval'
+  | 'Clinical Trial'
+  | 'Partnership'
+  | 'Financial'
+  | 'R&D'
+  | 'Policy Update'
+  | 'Safety Alert'
+  | 'General News';
+
+export interface RegulatoryNewsItem {
+  id: string;
+  title: string;
+  company: NewsCompany;
+  category: NewsCategory;
+  summary: string;
+  publishedDate: string;
+  url: string;
+  tags: string[];
+  relevanceScore?: number;
+}
+
+export interface NewsFilter {
+  companies: Set<NewsCompany>;
+  categories: Set<NewsCategory>;
+  dateRange?: { from: string; to: string };
+  searchQuery?: string;
+}
+
+export interface NewsResponse {
+  count: number;
+  items: RegulatoryNewsItem[];
+}
+
+export interface NewsAggregations {
+  total: number;
+  byCompany: Record<string, number>;
+  byCategory: Record<string, number>;
+}

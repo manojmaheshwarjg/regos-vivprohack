@@ -11,6 +11,8 @@ import dotenv from 'dotenv';
 import { Client } from '@elastic/elasticsearch';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { updateNews, loadNewsFromFile } from './newsScraperService.js';
+import { startNewsScheduler } from './newsScheduler.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -123,11 +125,108 @@ app.get('/api/document/:id', async (req, res) => {
   }
 });
 
+// ============================================================
+// REGULATORY NEWS ENDPOINTS
+// ============================================================
+
+// Get regulatory news with filters
+app.get('/api/news', async (req, res) => {
+  try {
+    const { company, category, from, to, limit = 100 } = req.query;
+
+    console.log('📰 News request:', { company, category, from, to, limit });
+
+    let news = await loadNewsFromFile();
+
+    // Apply filters
+    if (company) {
+      const companies = company.split(',');
+      news = news.filter(item => companies.includes(item.company));
+    }
+
+    if (category) {
+      const categories = category.split(',');
+      news = news.filter(item => categories.includes(item.category));
+    }
+
+    if (from) {
+      const fromDate = new Date(from);
+      news = news.filter(item => new Date(item.publishedDate) >= fromDate);
+    }
+
+    if (to) {
+      const toDate = new Date(to);
+      news = news.filter(item => new Date(item.publishedDate) <= toDate);
+    }
+
+    // Sort by date (newest first)
+    news.sort((a, b) => new Date(b.publishedDate) - new Date(a.publishedDate));
+
+    // Apply limit
+    news = news.slice(0, parseInt(limit));
+
+    console.log(`✓ Returning ${news.length} news items`);
+
+    res.json({
+      count: news.length,
+      items: news
+    });
+  } catch (error) {
+    console.error('❌ News fetch error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Manually trigger news refresh (dev/admin use)
+app.post('/api/news/refresh', async (req, res) => {
+  try {
+    console.log('🔄 Manual news refresh triggered...');
+    const news = await updateNews();
+
+    res.json({
+      success: true,
+      count: news.length,
+      message: 'News updated successfully'
+    });
+  } catch (error) {
+    console.error('❌ News refresh error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get news aggregations (count by company, category)
+app.get('/api/news/aggregations', async (req, res) => {
+  try {
+    const news = await loadNewsFromFile();
+
+    const byCompany = {};
+    const byCategory = {};
+
+    news.forEach(item => {
+      byCompany[item.company] = (byCompany[item.company] || 0) + 1;
+      byCategory[item.category] = (byCategory[item.category] || 0) + 1;
+    });
+
+    res.json({
+      total: news.length,
+      byCompany,
+      byCategory
+    });
+  } catch (error) {
+    console.error('❌ News aggregation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Start server
 app.listen(port, () => {
   console.log(`\n✓ Elasticsearch API server running on http://localhost:${port}`);
   console.log(`✓ Search endpoint: POST http://localhost:${port}/api/search`);
+  console.log(`✓ News endpoint: GET http://localhost:${port}/api/news`);
   console.log(`✓ Health check: GET http://localhost:${port}/api/health\n`);
+
+  // Start news scheduler
+  startNewsScheduler();
 });
 
 // Graceful shutdown

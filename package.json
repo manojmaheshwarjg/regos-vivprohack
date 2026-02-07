@@ -12,11 +12,15 @@
     "@elastic/elasticsearch": "^9.3.0",
     "@google/genai": "^1.40.0",
     "@google/generative-ai": "^0.24.1",
+    "axios": "^1.13.4",
+    "cheerio": "^1.2.0",
     "framer-motion": "10.16.16",
     "lucide-react": "0.303.0",
+    "node-cron": "^4.2.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "recharts": "2.10.3"
+    "recharts": "2.10.3",
+    "rss-parser": "^3.13.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

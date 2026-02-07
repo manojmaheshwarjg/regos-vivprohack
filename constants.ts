@@ -1,5 +1,5 @@
 
-import { Agent, AgentStatus, Discrepancy, ClinicalTrial } from './types';
+import { Agent, AgentStatus, Discrepancy, ClinicalTrial, RegulatoryNewsItem } from './types';
 
 export const INITIAL_AGENTS: Agent[] = [
   {
@@ -304,3 +304,158 @@ export const MIN_MEDICAL_QUERY_SCORE = 40;
  * Typical good matches: 0.6-0.9
  */
 export const MIN_KNN_SIMILARITY = 0.55;
+
+// --- Regulatory News Mock Data ---
+
+export const MOCK_NEWS: RegulatoryNewsItem[] = [
+  {
+    id: 'news-1',
+    title: 'FDA Approves Elrexfio for Multiple Myeloma Treatment',
+    company: 'Pfizer',
+    category: 'FDA Approval',
+    summary: 'The FDA has granted accelerated approval to Elrexfio (elranatamab-bcmm) for adult patients with relapsed or refractory multiple myeloma who have received at least four prior lines of therapy.',
+    publishedDate: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(), // 2 days ago
+    url: 'https://www.pfizer.com/news/press-release/example',
+    tags: ['Oncology', 'Multiple Myeloma']
+  },
+  {
+    id: 'news-2',
+    title: 'Johnson & Johnson Announces Positive Phase 3 Results for Depression Treatment',
+    company: 'Johnson & Johnson',
+    category: 'Clinical Trial',
+    summary: 'J&J Spravato (esketamine) nasal spray demonstrated statistically significant improvement in depressive symptoms compared to placebo in patients with treatment-resistant depression.',
+    publishedDate: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.jnj.com/media-center/press-releases/example',
+    tags: ['Mental Health', 'Depression']
+  },
+  {
+    id: 'news-3',
+    title: 'Merck Partners with BioNTech to Develop Next-Generation Cancer Vaccines',
+    company: 'Merck',
+    category: 'Partnership',
+    summary: 'Merck and BioNTech announce strategic collaboration to co-develop and commercialize investigational cancer vaccine candidates, expanding their immunotherapy pipeline.',
+    publishedDate: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.merck.com/news/example',
+    tags: ['Oncology', 'Vaccines', 'Partnership']
+  },
+  {
+    id: 'news-4',
+    title: 'AbbVie Reports Strong Q4 Earnings Driven by Skyrizi and Rinvoq Growth',
+    company: 'AbbVie',
+    category: 'Financial',
+    summary: 'AbbVie announces fourth-quarter revenue of $14.8B, up 3.8% year-over-year, with Skyrizi and Rinvoq sales reaching $3.7B combined, offsetting Humira biosimilar competition.',
+    publishedDate: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://news.abbvie.com/example',
+    tags: ['Financial', 'Immunology']
+  },
+  {
+    id: 'news-5',
+    title: 'AstraZeneca Receives Breakthrough Therapy Designation for Lung Cancer Treatment',
+    company: 'AstraZeneca',
+    category: 'FDA Approval',
+    summary: 'The FDA grants Breakthrough Therapy Designation to AstraZeneca\'s datopotamab deruxtecan for patients with previously treated metastatic non-small cell lung cancer.',
+    publishedDate: new Date(Date.now() - 8 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.astrazeneca.com/media-centre/press-releases/example',
+    tags: ['Oncology', 'Lung Cancer']
+  },
+  {
+    id: 'news-6',
+    title: 'Pfizer Expands COVID-19 Vaccine Production Capacity in Ireland',
+    company: 'Pfizer',
+    category: 'R&D',
+    summary: 'Pfizer announces $100M investment to expand its Ringaskiddy manufacturing facility in Ireland, increasing mRNA vaccine production capacity for future pandemic preparedness.',
+    publishedDate: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.pfizer.com/news/press-release/example-2',
+    tags: ['COVID-19', 'Vaccines', 'Manufacturing']
+  },
+  {
+    id: 'news-7',
+    title: 'J&J Submits BLA for Carvykti in Earlier Lines of Multiple Myeloma Treatment',
+    company: 'Johnson & Johnson',
+    category: 'Policy Update',
+    summary: 'Johnson & Johnson submits Biologics License Application to FDA for Carvykti (ciltacabtagene autoleucel) in patients with multiple myeloma after one prior line of therapy.',
+    publishedDate: new Date(Date.now() - 12 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.jnj.com/media-center/press-releases/example-2',
+    tags: ['Oncology', 'Cell Therapy']
+  },
+  {
+    id: 'news-8',
+    title: 'Merck Initiates Phase 3 Trial for Novel HIV Prevention Therapy',
+    company: 'Merck',
+    category: 'Clinical Trial',
+    summary: 'Merck announces the start of IMPOWER, a Phase 3 trial evaluating the safety and efficacy of lenacapavir for HIV pre-exposure prophylaxis in at-risk populations.',
+    publishedDate: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.merck.com/news/example-2',
+    tags: ['HIV', 'Prevention']
+  },
+  {
+    id: 'news-9',
+    title: 'AbbVie Completes Acquisition of ImmunoGen for $10.1 Billion',
+    company: 'AbbVie',
+    category: 'Partnership',
+    summary: 'AbbVie announces completion of its acquisition of ImmunoGen, expanding its oncology portfolio with antibody-drug conjugate technology and pipeline assets.',
+    publishedDate: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://news.abbvie.com/example-2',
+    tags: ['Oncology', 'M&A']
+  },
+  {
+    id: 'news-10',
+    title: 'AstraZeneca\'s Imfinzi Shows Survival Benefit in Liver Cancer Trial',
+    company: 'AstraZeneca',
+    category: 'Clinical Trial',
+    summary: 'Phase III HIMALAYA trial demonstrates Imfinzi plus tremelimumab significantly improved overall survival versus sorafenib in patients with unresectable hepatocellular carcinoma.',
+    publishedDate: new Date(Date.now() - 17 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.astrazeneca.com/media-centre/press-releases/example-2',
+    tags: ['Oncology', 'Liver Cancer', 'Immunotherapy']
+  },
+  {
+    id: 'news-11',
+    title: 'Pfizer Provides Update on Antiviral Research Pipeline',
+    company: 'Pfizer',
+    category: 'R&D',
+    summary: 'Pfizer shares progress on its antiviral research program, including investigational therapies for RSV, influenza, and emerging infectious diseases.',
+    publishedDate: new Date(Date.now() - 19 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.pfizer.com/news/press-release/example-3',
+    tags: ['Infectious Disease', 'Antivirals']
+  },
+  {
+    id: 'news-12',
+    title: 'Johnson & Johnson Announces $2 Billion Investment in Gene Therapy Manufacturing',
+    company: 'Johnson & Johnson',
+    category: 'R&D',
+    summary: 'J&J commits $2B to expand gene therapy manufacturing capabilities, including new facilities in the US and Europe to support its cell and gene therapy pipeline.',
+    publishedDate: new Date(Date.now() - 21 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.jnj.com/media-center/press-releases/example-3',
+    tags: ['Gene Therapy', 'Manufacturing']
+  },
+  {
+    id: 'news-13',
+    title: 'Merck Receives FDA Approval for Keytruda Combination in Triple-Negative Breast Cancer',
+    company: 'Merck',
+    category: 'FDA Approval',
+    summary: 'FDA approves Keytruda in combination with chemotherapy for patients with locally recurrent unresectable or metastatic triple-negative breast cancer expressing PD-L1.',
+    publishedDate: new Date(Date.now() - 23 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.merck.com/news/example-3',
+    tags: ['Oncology', 'Breast Cancer', 'Immunotherapy']
+  },
+  {
+    id: 'news-14',
+    title: 'AbbVie\'s Rinvoq Receives Expanded Indication for Crohn\'s Disease',
+    company: 'AbbVie',
+    category: 'FDA Approval',
+    summary: 'FDA approves Rinvoq (upadacitinib) for the treatment of adults with moderately to severely active Crohn\'s disease who have had an inadequate response to conventional therapy.',
+    publishedDate: new Date(Date.now() - 25 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://news.abbvie.com/example-3',
+    tags: ['Gastroenterology', 'IBD']
+  },
+  {
+    id: 'news-15',
+    title: 'AstraZeneca Collaborates with AI Company to Accelerate Drug Discovery',
+    company: 'AstraZeneca',
+    category: 'Partnership',
+    summary: 'AstraZeneca announces partnership with BenevolentAI to leverage artificial intelligence for target identification and drug discovery across multiple therapeutic areas.',
+    publishedDate: new Date(Date.now() - 27 * 24 * 60 * 60 * 1000).toISOString(),
+    url: 'https://www.astrazeneca.com/media-centre/press-releases/example-3',
+    tags: ['Digital Health', 'AI', 'Drug Discovery']
+  }
+];

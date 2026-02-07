@@ -49,6 +49,15 @@ RegOS is a next-generation clinical trial search platform powered by Elasticsear
 - Manual override system for acknowledged discrepancies
 - Zero-cost verification using existing Gemini API quota
 
+**Regulatory Intelligence Feed**
+- Real-time pharmaceutical news aggregation from 5 major companies
+- Automated web scraping and RSS parsing (Pfizer, J&J, Merck, AbbVie, AstraZeneca)
+- AI-powered executive summaries with Gemini Flash
+- Intelligent categorization (FDA approvals, clinical trials, partnerships, etc.)
+- Social media-style feed with search and filtering
+- 24-hour caching with manual refresh capability
+- Background news updates every 6 hours
+
 ### Work in Progress
 
 The following features are currently under development:
@@ -654,6 +663,8 @@ Regos/
 │   ├── Chat.tsx                # [ACTIVE] Multi-session conversational chat with trial context
 │   ├── VerifiedText.tsx        # [ACTIVE] Inline text highlighting for verification issues
 │   ├── VerificationModal.tsx   # [ACTIVE] Detailed issue comparison modal
+│   ├── RegIntelligence.tsx     # [ACTIVE] Regulatory news feed with AI summaries
+│   ├── NewsCard.tsx            # [ACTIVE] Individual news article card component
 │   ├── AgentWorkflow.tsx       # [WIP] Multi-agent orchestration UI
 │   ├── Dashboard.tsx           # [WIP] Analytics dashboard
 │   ├── DocumentsView.tsx       # [WIP] File upload + eCTD classification
@@ -661,17 +672,21 @@ Regos/
 ├── services/
 │   ├── searchEngine.ts         # Core hybrid search logic (RRF)
 │   ├── embeddingService.ts     # Vector embedding generation + caching
-│   ├── geminiService.ts        # AI query validation + answer generation + chat
+│   ├── geminiService.ts        # AI query validation + answer generation + chat + news summaries
 │   ├── factCheckingService.ts  # [ACTIVE] LLM-based fact-checking and verification
+│   ├── newsService.ts          # [ACTIVE] Pharmaceutical news fetching and caching
 │   └── elasticsearchService.ts # Elasticsearch client wrapper
 ├── server/
-│   ├── api.js                  # Express API proxy for secure ES access
+│   ├── api.js                  # Express API proxy + news API endpoints
+│   ├── newsScraperService.js   # Web scraping for pharma company press releases
+│   ├── newsScheduler.js        # Automated news updates (6-hour interval)
+│   ├── data/                   # JSON storage for scraped news
 │   └── package.json
 ├── scripts/
 │   ├── index_trials_win.py     # Python indexing script with embeddings
 │   └── requirements.txt
 ├── constants.ts                # App configuration + domain knowledge
-├── types.ts                    # TypeScript type definitions (ChatSession, Message, VerificationResult)
+├── types.ts                    # TypeScript type definitions (ChatSession, Message, VerificationResult, RegulatoryNewsItem)
 └── README.md                   # This file
 ```
 

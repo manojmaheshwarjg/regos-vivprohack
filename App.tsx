@@ -1,11 +1,12 @@
 
 import React, { useState, useEffect } from 'react';
-import { Zap, UploadCloud, Settings, Bell, Search, Command, Globe, Radio, LayoutGrid, ChevronDown, MessageSquare } from 'lucide-react';
+import { Zap, UploadCloud, Settings, Bell, Search, Command, Globe, Radio, LayoutGrid, ChevronDown, MessageSquare, Newspaper } from 'lucide-react';
 import { AgentWorkflow } from './components/AgentWorkflow';
 import { TruthLayer } from './components/TruthLayer';
 import { DocumentsView } from './components/DocumentsView';
 import { ClinicalSearch } from './components/ClinicalSearch';
 import { Chat } from './components/Chat';
+import { RegIntelligence } from './components/RegIntelligence';
 import { INITIAL_AGENTS, MOCK_DISCREPANCIES } from './constants';
 import { Agent, AgentStatus, Discrepancy, SourceDocument, ProjectStatus, ECTDModule, ChatSession } from './types';
 import { generateAgentLog } from './services/geminiService';
@@ -15,7 +16,8 @@ enum View {
   AGENTS = 'AGENTS',
   TRUTHLAYER = 'TRUTHLAYER',
   SEARCH = 'SEARCH',
-  CHAT = 'CHAT'
+  CHAT = 'CHAT',
+  REG_INTELLIGENCE = 'REG_INTELLIGENCE'
 }
 
 // Logo Component using PNG
@@ -348,6 +350,24 @@ const App: React.FC = () => {
                           <div className="text-xs text-slate-500 mt-0.5">Clinical Intelligence Search & Chat</div>
                        </div>
                     </button>
+
+                    <button
+                       onClick={() => {
+                           setCurrentView(View.REG_INTELLIGENCE);
+                           setIsAppsMenuOpen(false);
+                       }}
+                       className={`w-full flex items-start gap-3 p-3 rounded-lg transition-colors text-left group mt-1
+                           ${currentView === View.REG_INTELLIGENCE ? 'bg-brand-50' : 'hover:bg-slate-50'}
+                       `}
+                    >
+                       <div className={`p-2 rounded-md ${currentView === View.REG_INTELLIGENCE ? 'bg-brand-100 text-brand-600' : 'bg-slate-100 text-slate-500 group-hover:text-slate-700'}`}>
+                           <Newspaper className="w-4 h-4" />
+                       </div>
+                       <div>
+                          <div className={`text-sm font-semibold ${currentView === View.REG_INTELLIGENCE ? 'text-brand-900' : 'text-slate-900'}`}>Reg Intelligence</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Regulatory News & Updates</div>
+                       </div>
+                    </button>
                  </div>
               )}
           </div>
@@ -479,6 +499,10 @@ const App: React.FC = () => {
                   }
                 }}
               />
+            )}
+
+            {currentView === View.REG_INTELLIGENCE && (
+              <RegIntelligence />
             )}
           </div>
         </div>

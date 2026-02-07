@@ -3,10 +3,18 @@ import { GoogleGenAI } from "@google/genai";
 import { QueryAnalysis, Message, ClinicalTrial } from '../types';
 
 const getAiClient = () => {
-  // Using the specific API key provided
-  const apiKey = process.env.API_KEY || 'AIzaSyCabO8_2Y-icW-RutRAvGVMeBrawJyyOY0';
-  if (!apiKey) return null;
-  return new GoogleGenAI({ apiKey });
+  // Get API key from Vite environment variable
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  if (!apiKey) {
+    console.warn('⚠️ No Gemini API key found. AI features will use fallback data.');
+    return null;
+  }
+  try {
+    return new GoogleGenAI({ apiKey });
+  } catch (error) {
+    console.error('❌ Failed to initialize Gemini client:', error);
+    return null;
+  }
 };
 
 // Rich fallback messages to ensure the app feels "alive" even when API quota is hit
@@ -522,6 +530,104 @@ const CHAT_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
  * @param contextTrials - Clinical trials that form the context for this conversation
  * @returns Object with answer text and array of cited NCT IDs
  */
+/**
+ * Generate AI overview of pharmaceutical news from scraped articles
+ * Used for the Regulatory Intelligence feed
+ *
+ * @param newsItems - Array of scraped pharmaceutical news items
+ * @returns Object with summary text and highlighted news items
+ */
+export const generatePharmaNewsOverview = async (
+  newsItems: any[]
+): Promise<{ summary: string; highlights: string[] } | null> => {
+  const ai = getAiClient();
+
+  // Return null if no news items
+  if (!newsItems || newsItems.length === 0) {
+    return null;
+  }
+
+  // Fallback if no AI client - return basic summary
+  if (!ai) {
+    return {
+      summary: `${newsItems.length} pharmaceutical news articles from leading companies including ${[...new Set(newsItems.slice(0, 5).map((n: any) => n.company))].join(', ')}.`,
+      highlights: newsItems.slice(0, 3).map((n: any) => n.title)
+    };
+  }
+
+  try {
+    // Format news items for AI analysis (top 20 for context)
+    const topNews = newsItems.slice(0, 20);
+    const newsContext = topNews.map((item: any, idx: number) => {
+      return `[${idx + 1}] ${item.company} - ${item.category}
+Title: ${item.title}
+Summary: ${item.summary}
+Date: ${item.publishedDate}
+Tags: ${item.tags.join(', ')}`;
+    }).join('\n\n');
+
+    console.log('🤖 Generating pharmaceutical news overview with Gemini...');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest',
+      contents: `You are a pharmaceutical regulatory intelligence analyst. Analyze these recent news articles from major pharma companies.
+
+PHARMACEUTICAL NEWS (${newsItems.length} total articles, analyzing top ${topNews.length}):
+
+${newsContext}
+
+Your task:
+1. Read and understand the content of each news article
+2. Identify the most significant developments across all news
+3. Extract the key insights that matter most to pharmaceutical professionals
+4. Focus on: FDA approvals, clinical trial results, partnerships, M&A, safety alerts, regulatory changes, pipeline updates
+
+CRITICAL FORMATTING RULES:
+- Write in clean, readable prose - NO markdown formatting
+- DO NOT use asterisks, underscores, or any markdown syntax
+- DO NOT use bold (**text**) or italics (*text*)
+- Use plain text only with proper punctuation
+- Summary: 2-3 sentences analyzing the overall landscape
+- Highlights: 3-4 specific, actionable insights from the actual news content
+
+Return JSON format:
+{
+  "summary": "Your executive summary analyzing the pharmaceutical landscape based on these news articles",
+  "highlights": ["Specific insight from article 1 with company name and details", "Specific insight from article 2", "Specific insight from article 3", "Specific insight from article 4"]
+}
+
+Example based on actual news:
+{
+  "summary": "This week's pharmaceutical news highlights strong financial performance from AbbVie with their Q4 2025 earnings report, while regulatory activity includes guidance updates from the FDA. Major companies continue advancing their clinical pipelines with several Phase 3 trials reaching key milestones across oncology and rare disease programs.",
+  "highlights": ["AbbVie reports record Q4 2025 revenue driven by Rinvoq and Skyrizi growth", "FDA issues new guidance on accelerated approval pathway for oncology drugs", "Merck announces positive Phase 3 data for investigational diabetes treatment", "Johnson & Johnson completes acquisition of biotech firm focused on gene therapy"]
+}`,
+      config: { responseMimeType: 'application/json' }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text);
+      console.log('✓ Pharma news overview generated');
+      return {
+        summary: parsed.summary || '',
+        highlights: parsed.highlights || []
+      };
+    }
+
+    // Fallback if parsing fails
+    return {
+      summary: `${newsItems.length} pharmaceutical news articles covering regulatory approvals, clinical trials, and industry partnerships.`,
+      highlights: topNews.slice(0, 3).map((n: any) => n.title)
+    };
+  } catch (e: any) {
+    console.error('Pharma news overview generation error:', e);
+    // Return basic summary on error
+    return {
+      summary: `${newsItems.length} pharmaceutical news articles from ${[...new Set(newsItems.slice(0, 5).map((n: any) => n.company))].join(', ')}.`,
+      highlights: newsItems.slice(0, 3).map((n: any) => n.title)
+    };
+  }
+};
+
 export const generateChatResponse = async (
   messages: Message[],
   contextTrials: ClinicalTrial[]
