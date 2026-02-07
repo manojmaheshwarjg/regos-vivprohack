@@ -288,3 +288,19 @@ export const MOCK_TRIALS: ClinicalTrial[] = [
     description: 'Large scale efficacy study of mRNA vaccine.'
   }
 ];
+
+// --- Query Validation & Search Quality Constants ---
+
+/**
+ * Minimum score (0-100) for a query to be considered medical/clinical
+ * Queries scoring below this threshold will be blocked from semantic/hybrid search
+ */
+export const MIN_MEDICAL_QUERY_SCORE = 40;
+
+/**
+ * Minimum cosine similarity threshold for kNN vector search results
+ * Results with similarity below this will be filtered out
+ * Range: 0.0 (opposite) to 1.0 (identical)
+ * Typical good matches: 0.6-0.9
+ */
+export const MIN_KNN_SIMILARITY = 0.55;
