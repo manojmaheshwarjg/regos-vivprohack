@@ -77,11 +77,11 @@ export const ClinicalSearch: React.FC = () => {
 
   // Suggestion Chips Data
   const SUGGESTION_CHIPS = [
-    { label: "Phase 3 Diabetes", icon: <Activity className="w-3.5 h-3.5" /> },
-    { label: "Recruiting Oncology", icon: <Microscope className="w-3.5 h-3.5" /> },
-    { label: "Gene Therapy", icon: <Dna className="w-3.5 h-3.5" /> },
-    { label: "Moderna Vaccines", icon: <FlaskConical className="w-3.5 h-3.5" /> },
-    { label: "Pediatric Studies", icon: <Users className="w-3.5 h-3.5" /> }
+    { label: "What are the latest diabetes trials?", icon: <Activity className="w-3.5 h-3.5" /> },
+    { label: "Which cancer trials are currently recruiting?", icon: <Microscope className="w-3.5 h-3.5" /> },
+    { label: "Show me Phase 3 cardiovascular studies", icon: <Dna className="w-3.5 h-3.5" /> },
+    { label: "How many gene therapy trials exist?", icon: <FlaskConical className="w-3.5 h-3.5" /> },
+    { label: "Find completed immunotherapy studies", icon: <Users className="w-3.5 h-3.5" /> }
   ];
 
   // Autocomplete Logic
