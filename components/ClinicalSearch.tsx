@@ -1,9 +1,9 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle } from 'lucide-react';
+import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations } from '../services/geminiService';
+import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations, generateRelatedQuestions } from '../services/geminiService';
 import { executeSearch } from '../services/searchEngine';
 import { generateQueryEmbedding } from '../services/embeddingService';
 import { DOMAIN_KNOWLEDGE } from '../constants';
@@ -60,7 +60,8 @@ export const ClinicalSearch: React.FC = () => {
   const [validationError, setValidationError] = useState<{ score: number; reason: string } | null>(null);
   const [aiAnswer, setAiAnswer] = useState<{ answer: string; citations: string[] } | null>(null);
   const [isGeneratingAnswer, setIsGeneratingAnswer] = useState(false);
-  
+  const [relatedQuestions, setRelatedQuestions] = useState<string[]>([]);
+
   // Model Switcher State (removed 'semantic' - use hybrid for AI-powered search)
   const [searchMode, setSearchMode] = useState<'hybrid' | 'keyword'>('hybrid');
   
@@ -236,6 +237,11 @@ export const ClinicalSearch: React.FC = () => {
           const answer = await generateAnswerWithCitations(searchQuery, transformedResults);
           setAiAnswer(answer);
           console.log('✓ AI answer generated with', answer.citations.length, 'citations');
+
+          // Generate related follow-up questions
+          const related = await generateRelatedQuestions(searchQuery, transformedResults);
+          setRelatedQuestions(related);
+          console.log('✓ Generated', related.length, 'related questions');
         } catch (answerErr) {
           console.error('⚠ Failed to generate AI answer:', answerErr);
           // Silently fail - results are still shown
@@ -679,6 +685,33 @@ export const ClinicalSearch: React.FC = () => {
                                       >
                                         <span className="group-hover:font-semibold transition-all">{nctId}</span>
                                       </a>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Related Questions */}
+                              {relatedQuestions.length > 0 && (
+                                <div className="mt-5 pt-5 border-t border-slate-100">
+                                  <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">
+                                    <div className="p-1 bg-brand-50 rounded">
+                                      <HelpCircle className="w-3 h-3 text-brand-600" />
+                                    </div>
+                                    Related Questions
+                                  </div>
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                    {relatedQuestions.map((question, idx) => (
+                                      <button
+                                        key={idx}
+                                        onClick={() => {
+                                          setQuery(question);
+                                          handleSearch(undefined, question);
+                                        }}
+                                        className="group text-left px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 hover:bg-brand-50 hover:border-brand-300 hover:text-brand-700 transition-all shadow-sm hover:shadow-md flex items-start gap-2"
+                                      >
+                                        <Search className="w-3.5 h-3.5 text-slate-400 group-hover:text-brand-600 shrink-0 mt-0.5" />
+                                        <span className="flex-1 group-hover:font-medium transition-all">{question}</span>
+                                      </button>
                                     ))}
                                   </div>
                                 </div>

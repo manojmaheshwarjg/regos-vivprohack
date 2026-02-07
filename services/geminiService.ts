@@ -426,3 +426,86 @@ Example for "What are the main types of cancer trials?" (assuming 50 total, anal
     };
   }
 };
+
+/**
+ * Generate related follow-up questions based on the user's query and search results
+ * Helps users explore the dataset with relevant questions
+ *
+ * @param originalQuery - The user's original search query
+ * @param results - Array of search results to analyze
+ * @returns Array of related question strings
+ */
+export const generateRelatedQuestions = async (
+  originalQuery: string,
+  results: any[]
+): Promise<string[]> => {
+  const ai = getAiClient();
+
+  // Fallback questions if no AI or error
+  const fallbackQuestions = [
+    "Which trials are currently recruiting?",
+    "What phases are most common?",
+    "Show me completed studies only",
+    "Which sponsors are leading research?"
+  ];
+
+  if (!ai || !results || results.length === 0) {
+    return fallbackQuestions.slice(0, 3);
+  }
+
+  try {
+    // Extract key insights from results for context
+    const sampleSize = Math.min(20, results.length);
+    const phases = new Set(results.slice(0, sampleSize).map((r: any) => r.phase || r.phases?.[0]).filter(Boolean));
+    const conditions = new Set(
+      results.slice(0, sampleSize)
+        .flatMap((r: any) => Array.isArray(r.conditions) ? r.conditions : [])
+        .map((c: any) => typeof c === 'string' ? c : c.name)
+        .filter(Boolean)
+    );
+    const sponsors = new Set(
+      results.slice(0, sampleSize)
+        .map((r: any) => r.sponsor || r.lead_sponsor?.name || r.source)
+        .filter(Boolean)
+    );
+
+    console.log('🤔 Generating related questions...');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest',
+      contents: `You are a clinical research assistant helping users explore clinical trial data.
+
+Original user question: "${originalQuery}"
+
+The search found ${results.length} trials with these characteristics:
+- Phases present: ${Array.from(phases).join(', ')}
+- Top conditions: ${Array.from(conditions).slice(0, 5).join(', ')}
+- Key sponsors: ${Array.from(sponsors).slice(0, 5).join(', ')}
+
+Generate exactly 4 natural language follow-up questions that:
+1. Help the user dig deeper into these specific results
+2. Explore different aspects (phases, sponsors, conditions, status, enrollment)
+3. Are phrased as complete questions (start with What/Which/How/Show/Find)
+4. Are concise (max 8 words each)
+5. Are directly answerable from this dataset
+
+Return as JSON array of 4 question strings.
+
+Example format: ["How many Phase 3 trials were found?", "Which sponsors funded these studies?", "Show me only recruiting trials", "What conditions were most studied?"]`,
+      config: { responseMimeType: 'application/json' }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        console.log(`✓ Generated ${parsed.length} related questions`);
+        return parsed.slice(0, 4);
+      }
+    }
+
+    return fallbackQuestions.slice(0, 4);
+  } catch (e: any) {
+    console.error('Related questions generation error:', e);
+    return fallbackQuestions.slice(0, 4);
+  }
+};
