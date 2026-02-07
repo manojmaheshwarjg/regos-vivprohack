@@ -1,13 +1,13 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight } from 'lucide-react';
+import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight, MessageSquare } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations, generateRelatedQuestions } from '../services/geminiService';
 import { executeSearch } from '../services/searchEngine';
 import { generateQueryEmbedding } from '../services/embeddingService';
 import { DOMAIN_KNOWLEDGE } from '../constants';
-import { ClinicalTrial, QueryAnalysis } from '../types';
+import { ClinicalTrial, QueryAnalysis, ChatSession, Message } from '../types';
 
 // Search History Type
 interface SearchHistoryItem {
@@ -63,7 +63,11 @@ const isQuestionQuery = (query: string): boolean => {
   return questionPatterns.some(pattern => pattern.test(lowerQuery));
 };
 
-export const ClinicalSearch: React.FC = () => {
+interface ClinicalSearchProps {
+  onCreateChat?: (session: ChatSession) => void;
+}
+
+export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) => {
   const [query, setQuery] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState<QueryAnalysis | null>(null);
@@ -381,7 +385,7 @@ export const ClinicalSearch: React.FC = () => {
         </button>
       )}
 
-      {/* Search History Slide-out Panel */}
+      {/* Search History Modal */}
       <AnimatePresence>
         {showHistory && (
           <>
@@ -391,105 +395,106 @@ export const ClinicalSearch: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowHistory(false)}
-              className="fixed inset-0 bg-black/30 backdrop-blur-sm z-40"
-            />
-
-            {/* Panel */}
-            <motion.div
-              initial={{ x: '100%' }}
-              animate={{ x: 0 }}
-              exit={{ x: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-              className="fixed top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl z-50 overflow-hidden flex flex-col"
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
             >
-              {/* Header */}
-              <div className="px-6 py-4 border-b border-slate-200 bg-slate-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-brand-100 rounded-lg">
-                      <History className="w-5 h-5 text-brand-600" />
+              {/* Modal - Click inside won't close */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[80vh] overflow-hidden flex flex-col"
+              >
+                {/* Header */}
+                <div className="px-6 py-5 border-b border-slate-200 bg-gradient-to-r from-slate-50 to-white shrink-0">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-brand-100 rounded-xl">
+                        <History className="w-5 h-5 text-brand-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">Search History</h3>
+                        <p className="text-xs text-slate-500">Click any search to restore results instantly</p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="text-lg font-bold text-slate-900">Search History</h3>
-                      <p className="text-xs text-slate-500">Click to restore a previous search</p>
-                    </div>
+                    <button
+                      onClick={() => setShowHistory(false)}
+                      className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                    >
+                      <X className="w-5 h-5 text-slate-500" />
+                    </button>
                   </div>
+                </div>
+
+                {/* Scrollable History List */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-3">
+                  {searchHistory.map((item, idx) => (
+                    <motion.button
+                      key={item.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: idx * 0.03 }}
+                      onClick={() => restoreFromHistory(item)}
+                      className="w-full text-left p-4 bg-slate-50 hover:bg-brand-50 border border-slate-200 hover:border-brand-300 rounded-xl transition-all group"
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 group-hover:text-brand-700 line-clamp-2 transition-colors">
+                            {item.query}
+                          </p>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 shrink-0 ml-2 mt-0.5 group-hover:translate-x-1 transition-transform" />
+                      </div>
+
+                      <div className="flex items-center gap-4 text-xs text-slate-500">
+                        <div className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {new Date(item.timestamp).toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric',
+                            hour: '2-digit',
+                            minute: '2-digit'
+                          })}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Search className="w-3 h-3" />
+                          {item.resultCount} results
+                        </div>
+                        {item.searchMode === 'hybrid' && (
+                          <span className="px-2 py-0.5 bg-brand-100 text-brand-700 rounded text-[10px] font-bold">
+                            AI
+                          </span>
+                        )}
+                      </div>
+
+                      {item.aiAnswer && (
+                        <div className="mt-2 pt-2 border-t border-slate-200">
+                          <p className="text-xs text-slate-600 line-clamp-2">
+                            {item.aiAnswer.answer.substring(0, 100)}...
+                          </p>
+                        </div>
+                      )}
+                    </motion.button>
+                  ))}
+                </div>
+
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-slate-200 bg-slate-50 shrink-0">
                   <button
-                    onClick={() => setShowHistory(false)}
-                    className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                    onClick={() => {
+                      if (confirm('Clear all search history?')) {
+                        setSearchHistory([]);
+                        localStorage.removeItem('regosSearchHistory');
+                        setShowHistory(false);
+                      }
+                    }}
+                    className="w-full px-4 py-2.5 text-sm font-semibold text-red-600 hover:bg-red-50 rounded-lg transition-colors border border-red-200 hover:border-red-300"
                   >
-                    <X className="w-5 h-5 text-slate-500" />
+                    Clear All History
                   </button>
                 </div>
-              </div>
-
-              {/* History List */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                {searchHistory.map((item, idx) => (
-                  <motion.button
-                    key={item.id}
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    onClick={() => restoreFromHistory(item)}
-                    className="w-full text-left p-4 bg-slate-50 hover:bg-brand-50 border border-slate-200 hover:border-brand-300 rounded-xl transition-all group"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 group-hover:text-brand-700 line-clamp-2 transition-colors">
-                          {item.query}
-                        </p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 shrink-0 ml-2 mt-0.5" />
-                    </div>
-
-                    <div className="flex items-center gap-4 text-xs text-slate-500">
-                      <div className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {new Date(item.timestamp).toLocaleDateString('en-US', {
-                          month: 'short',
-                          day: 'numeric',
-                          hour: '2-digit',
-                          minute: '2-digit'
-                        })}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Search className="w-3 h-3" />
-                        {item.resultCount} results
-                      </div>
-                      {item.searchMode === 'hybrid' && (
-                        <span className="px-2 py-0.5 bg-brand-100 text-brand-700 rounded text-[10px] font-bold">
-                          AI
-                        </span>
-                      )}
-                    </div>
-
-                    {item.aiAnswer && (
-                      <div className="mt-2 pt-2 border-t border-slate-200">
-                        <p className="text-xs text-slate-600 line-clamp-2">
-                          {item.aiAnswer.answer.substring(0, 100)}...
-                        </p>
-                      </div>
-                    )}
-                  </motion.button>
-                ))}
-              </div>
-
-              {/* Footer */}
-              <div className="px-6 py-4 border-t border-slate-200 bg-slate-50">
-                <button
-                  onClick={() => {
-                    if (confirm('Clear all search history?')) {
-                      setSearchHistory([]);
-                      localStorage.removeItem('regosSearchHistory');
-                      setShowHistory(false);
-                    }
-                  }}
-                  className="w-full px-4 py-2 text-sm font-medium text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                >
-                  Clear History
-                </button>
-              </div>
+              </motion.div>
             </motion.div>
           </>
         )}
@@ -926,6 +931,50 @@ export const ClinicalSearch: React.FC = () => {
                                       </button>
                                     ))}
                                   </div>
+                                </div>
+                              )}
+
+                              {/* Continue in Chat Button */}
+                              {onCreateChat && aiAnswer && aiAnswer.citations.length > 0 && (
+                                <div className="mt-5 pt-5 border-t border-slate-100 flex justify-end">
+                                  <button
+                                    onClick={() => {
+                                      // Get cited trials from results
+                                      const citedTrials = results.filter(trial =>
+                                        aiAnswer.citations.includes(trial.nctId)
+                                      );
+
+                                      // Create initial assistant message
+                                      const initialMessage: Message = {
+                                        id: Date.now().toString() + Math.random(),
+                                        role: 'assistant',
+                                        content: aiAnswer.answer,
+                                        timestamp: Date.now(),
+                                        citations: aiAnswer.citations
+                                      };
+
+                                      // Create chat session
+                                      const chatSession: ChatSession = {
+                                        id: Date.now().toString() + Math.random(),
+                                        title: query.substring(0, 60),
+                                        messages: [initialMessage],
+                                        contextTrials: citedTrials,
+                                        createdAt: Date.now(),
+                                        updatedAt: Date.now()
+                                      };
+
+                                      if (onCreateChat) {
+                                        onCreateChat(chatSession);
+                                      }
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-lg hover:from-brand-700 hover:to-brand-600 transition-all shadow-md hover:shadow-lg font-semibold text-sm"
+                                  >
+                                    <MessageSquare className="w-4 h-4" />
+                                    Continue in Chat
+                                    <span className="px-2 py-0.5 bg-white/20 rounded text-xs">
+                                      {aiAnswer.citations.length} trial{aiAnswer.citations.length === 1 ? '' : 's'}
+                                    </span>
+                                  </button>
                                 </div>
                               )}
                             </div>

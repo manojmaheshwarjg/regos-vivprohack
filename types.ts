@@ -98,3 +98,22 @@ export interface QueryAnalysis {
   enrollment_size: string | null;
   keywords: string[];
 }
+
+// --- Chat Types ---
+
+export interface Message {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: number;
+  citations?: string[];  // NCT IDs referenced in the message
+}
+
+export interface ChatSession {
+  id: string;
+  title: string;  // Auto-generated from first question
+  messages: Message[];
+  contextTrials: ClinicalTrial[];  // Only cited trials from original search
+  createdAt: number;
+  updatedAt: number;
+}

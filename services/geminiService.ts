@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { QueryAnalysis } from '../types';
+import { QueryAnalysis, Message, ClinicalTrial } from '../types';
 
 const getAiClient = () => {
   // Using the specific API key provided
@@ -507,5 +507,150 @@ Example format: ["How many Phase 3 trials were found?", "Which sponsors funded t
   } catch (e: any) {
     console.error('Related questions generation error:', e);
     return fallbackQuestions.slice(0, 4);
+  }
+};
+
+// Chat response cache
+const chatCache = new Map<string, { answer: string; citations: string[]; timestamp: number }>();
+const CHAT_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+
+/**
+ * Generate a conversational chat response based on message history and trial context
+ * Used for follow-up questions in chat sessions
+ *
+ * @param messages - Array of previous messages in the conversation
+ * @param contextTrials - Clinical trials that form the context for this conversation
+ * @returns Object with answer text and array of cited NCT IDs
+ */
+export const generateChatResponse = async (
+  messages: Message[],
+  contextTrials: ClinicalTrial[]
+): Promise<{ answer: string; citations: string[] }> => {
+  // Create cache key from last user message + trial count
+  const lastUserMessage = messages.filter(m => m.role === 'user').slice(-1)[0];
+  if (!lastUserMessage) {
+    return {
+      answer: 'Please ask a question about the clinical trials.',
+      citations: []
+    };
+  }
+
+  const cacheKey = `${lastUserMessage.content}_${contextTrials.length}`.toLowerCase();
+  const cached = chatCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CHAT_CACHE_TTL) {
+    console.log('✓ Using cached chat response');
+    return { answer: cached.answer, citations: cached.citations };
+  }
+
+  const ai = getAiClient();
+
+  // Fallback if no trials
+  if (!contextTrials || contextTrials.length === 0) {
+    return {
+      answer: 'No clinical trials are available in this conversation context. Please start a new chat from a search result.',
+      citations: []
+    };
+  }
+
+  // Fallback if no AI client
+  if (!ai) {
+    return {
+      answer: `I have ${contextTrials.length} clinical trial${contextTrials.length === 1 ? '' : 's'} in context, but AI analysis is currently unavailable. Please try again later.`,
+      citations: contextTrials.slice(0, 3).map(t => t.nctId)
+    };
+  }
+
+  try {
+    // Format trial context
+    const trialContext = contextTrials.map((trial, idx) => {
+      return `[${idx + 1}] NCT ID: ${trial.nctId}
+Title: ${trial.title}
+Phase: ${trial.phase}
+Status: ${trial.status}
+Enrollment: ${trial.enrollment}
+Conditions: ${trial.conditions.join(', ')}
+Sponsor: ${trial.sponsor}
+Intervention: ${trial.intervention}
+Description: ${trial.description}`;
+    }).join('\n\n');
+
+    // Format conversation history
+    const conversationHistory = messages.map(m => {
+      return `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`;
+    }).join('\n');
+
+    console.log('💬 Generating chat response...');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest',
+      contents: `You are a clinical research intelligence assistant helping a user explore specific clinical trials through conversation.
+
+CONVERSATION HISTORY:
+${conversationHistory}
+
+CLINICAL TRIALS IN CONTEXT (${contextTrials.length} trials):
+${trialContext}
+
+The user just asked: "${lastUserMessage.content}"
+
+Generate a helpful, conversational answer based ONLY on the ${contextTrials.length} clinical trials provided above.
+
+CRITICAL FORMATTING RULES:
+- Write in clean, readable prose - NO markdown formatting
+- DO NOT use asterisks, underscores, or any markdown syntax
+- DO NOT use bold (**text**) or italics (*text*)
+- Use plain text only with proper punctuation
+- Cite trials by NCT ID in parentheses: (NCT12345678)
+- Use natural language for emphasis instead of formatting
+
+Your answer should:
+1. Directly answer the user's question
+2. Reference specific trials by NCT ID when making claims
+3. Provide specific details (phases, enrollment numbers, sponsors, etc.)
+4. Stay within the context of the ${contextTrials.length} trials provided
+5. Be conversational and helpful
+6. Use professional medical terminology
+7. Write as flowing prose, not bullet points
+
+Return JSON format:
+{
+  "answer": "Your conversational answer in clean prose without any markdown. Include inline citations like (NCT12345678).",
+  "citations": ["NCT12345678", "NCT87654321"]
+}
+
+Example for "Which trials are recruiting?":
+{
+  "answer": "Among the trials we're discussing, there are 2 currently recruiting participants. The first is NCT05678901, a Phase 3 semaglutide study for Type 2 Diabetes with 500 participants planned, sponsored by Novo Nordisk. The second is NCT04567890, evaluating Pembrolizumab plus chemotherapy for non-small cell lung cancer, enrolling 1200 patients through Merck Sharp and Dohme.",
+  "citations": ["NCT05678901", "NCT04567890"]
+}`,
+      config: { responseMimeType: 'application/json' }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text);
+      const result = {
+        answer: parsed.answer || 'I apologize, but I could not generate a proper response. Please try rephrasing your question.',
+        citations: parsed.citations || []
+      };
+
+      // Cache the result
+      chatCache.set(cacheKey, { ...result, timestamp: Date.now() });
+
+      console.log(`✓ Chat response generated (${result.citations.length} citations)`);
+      return result;
+    }
+
+    // Fallback if parsing fails
+    return {
+      answer: `I have ${contextTrials.length} clinical trials in context. How can I help you analyze them?`,
+      citations: contextTrials.slice(0, 2).map(t => t.nctId)
+    };
+  } catch (e: any) {
+    console.error('Chat response generation error:', e);
+    // Return basic summary on error
+    return {
+      answer: `I have ${contextTrials.length} clinical trials in context, but I'm having trouble generating a detailed response. Please try rephrasing your question.`,
+      citations: contextTrials.slice(0, 2).map(t => t.nctId)
+    };
   }
 };

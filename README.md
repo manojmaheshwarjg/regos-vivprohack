@@ -32,6 +32,14 @@ RegOS is a next-generation clinical trial search platform powered by Elasticsear
 - Natural language query processing with structured filter extraction
 - 1,000 clinical trials indexed with 3072-dimensional embeddings
 
+**Conversational Chat System**
+- Convert search results into persistent chat sessions
+- Multi-session management with automatic persistence (localStorage)
+- Context-aware follow-up questions using only cited trials
+- Progressive disclosure UI - Chat tab appears after first conversation
+- Real-time chat history with trial citations
+- Seamless transition from search to conversation
+
 ### Work in Progress
 
 The following features are currently under development:
@@ -222,7 +230,33 @@ Output: Structured filters (phase, condition, status, etc.)
 Purpose: Extract search parameters from conversational queries
 ```
 
-### 4. Express API Proxy (`server/api.js`)
+### 4. Chat System (`components/Chat.tsx`)
+
+**Responsibility**: Multi-session conversational interface for clinical trial discussions
+
+**Key Features**:
+- **Session Management**: Multiple persistent chat sessions with localStorage (max 50)
+- **Context-Aware**: Uses only cited trials from original search as context (efficient token usage)
+- **Progressive Disclosure**: Chat tab appears only after first session is created
+- **Duplicate Prevention**: useRef-based guard to prevent race conditions
+- **Trial Details Modal**: Click citations to view full trial information
+- **Search History Integration**: Seamlessly convert search results to chat sessions
+
+**Chat Flow**:
+```typescript
+Search Results → "Continue in Chat" → ChatSession {
+  id, title, messages: Message[],
+  contextTrials: ClinicalTrial[],  // Only cited trials
+  createdAt, updatedAt
+}
+```
+
+**Storage**:
+- localStorage key: `regosChatSessions`
+- Auto-persistence on session changes
+- 50-session limit (oldest removed first)
+
+### 5. Express API Proxy (`server/api.js`)
 
 **Responsibility**: Secure Elasticsearch access
 
@@ -608,6 +642,7 @@ Rank constant: 60
 Regos/
 ├── components/
 │   ├── ClinicalSearch.tsx     # [ACTIVE] Search interface + AI answer generation
+│   ├── Chat.tsx               # [ACTIVE] Multi-session conversational chat with trial context
 │   ├── AgentWorkflow.tsx      # [WIP] Multi-agent orchestration UI
 │   ├── Dashboard.tsx          # [WIP] Analytics dashboard
 │   ├── DocumentsView.tsx      # [WIP] File upload + eCTD classification
@@ -615,7 +650,7 @@ Regos/
 ├── services/
 │   ├── searchEngine.ts         # Core hybrid search logic (RRF)
 │   ├── embeddingService.ts     # Vector embedding generation + caching
-│   ├── geminiService.ts        # AI query validation + answer generation
+│   ├── geminiService.ts        # AI query validation + answer generation + chat
 │   └── elasticsearchService.ts # Elasticsearch client wrapper
 ├── server/
 │   ├── api.js                  # Express API proxy for secure ES access
@@ -624,7 +659,7 @@ Regos/
 │   ├── index_trials_win.py     # Python indexing script with embeddings
 │   └── requirements.txt
 ├── constants.ts                # App configuration + domain knowledge
-├── types.ts                    # TypeScript type definitions
+├── types.ts                    # TypeScript type definitions (includes ChatSession, Message)
 └── README.md                   # This file
 ```
 

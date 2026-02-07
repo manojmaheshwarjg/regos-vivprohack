@@ -1,19 +1,21 @@
 
-import React, { useState } from 'react';
-import { Zap, UploadCloud, Settings, Bell, Search, Command, Globe, Radio, LayoutGrid, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Zap, UploadCloud, Settings, Bell, Search, Command, Globe, Radio, LayoutGrid, ChevronDown, MessageSquare } from 'lucide-react';
 import { AgentWorkflow } from './components/AgentWorkflow';
 import { TruthLayer } from './components/TruthLayer';
 import { DocumentsView } from './components/DocumentsView';
 import { ClinicalSearch } from './components/ClinicalSearch';
+import { Chat } from './components/Chat';
 import { INITIAL_AGENTS, MOCK_DISCREPANCIES } from './constants';
-import { Agent, AgentStatus, Discrepancy, SourceDocument, ProjectStatus, ECTDModule } from './types';
+import { Agent, AgentStatus, Discrepancy, SourceDocument, ProjectStatus, ECTDModule, ChatSession } from './types';
 import { generateAgentLog } from './services/geminiService';
 
 enum View {
   DOCUMENTS = 'DOCUMENTS',
   AGENTS = 'AGENTS',
   TRUTHLAYER = 'TRUTHLAYER',
-  SEARCH = 'SEARCH'
+  SEARCH = 'SEARCH',
+  CHAT = 'CHAT'
 }
 
 // Logo Component using PNG
@@ -61,12 +63,29 @@ const App: React.FC = () => {
   // Navigation State
   const [currentView, setCurrentView] = useState<View>(View.SEARCH);
   const [isAppsMenuOpen, setIsAppsMenuOpen] = useState(false);
-  
+
   // Data State
   const [projectStatus, setProjectStatus] = useState<ProjectStatus>('draft');
   const [documents, setDocuments] = useState<SourceDocument[]>([]);
   const [agents, setAgents] = useState<Agent[]>(INITIAL_AGENTS);
   const [discrepancies, setDiscrepancies] = useState<Discrepancy[]>(MOCK_DISCREPANCIES);
+
+  // Chat State
+  const [pendingChatSession, setPendingChatSession] = useState<ChatSession | null>(null);
+  const [hasChatSessions, setHasChatSessions] = useState(false);
+
+  // Check if user has any chat sessions
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('regosChatSessions');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        setHasChatSessions(parsed.length > 0);
+      }
+    } catch (error) {
+      setHasChatSessions(false);
+    }
+  }, [currentView]); // Re-check when view changes
 
   const pendingDiscrepancies = discrepancies.filter(d => d.status === 'open').length;
 
@@ -242,8 +261,8 @@ const App: React.FC = () => {
   };
 
   const handleResolveDiscrepancy = (id: string, action: 'approve' | 'reject') => {
-    setDiscrepancies(prev => prev.map(d => 
-      d.id === id ? { ...d, status: 'resolved', resolvedBy: 'Sarah Chen', resolvedAt: new Date() } : d
+    setDiscrepancies(prev => prev.map(d =>
+      d.id === id ? { ...d, status: 'resolved', resolvedBy: 'Manoj Maheshwar', resolvedAt: new Date() } : d
     ));
   };
 
@@ -312,21 +331,21 @@ const App: React.FC = () => {
                        </div>
                     </button>
 
-                    <button 
+                    <button
                        onClick={() => {
                            setCurrentView(View.SEARCH);
                            setIsAppsMenuOpen(false);
                        }}
                        className={`w-full flex items-start gap-3 p-3 rounded-lg transition-colors text-left group mt-1
-                           ${currentView === View.SEARCH ? 'bg-brand-50' : 'hover:bg-slate-50'}
+                           ${[View.SEARCH, View.CHAT].includes(currentView) ? 'bg-brand-50' : 'hover:bg-slate-50'}
                        `}
                     >
-                       <div className={`p-2 rounded-md ${currentView === View.SEARCH ? 'bg-brand-100 text-brand-600' : 'bg-slate-100 text-slate-500 group-hover:text-slate-700'}`}>
+                       <div className={`p-2 rounded-md ${[View.SEARCH, View.CHAT].includes(currentView) ? 'bg-brand-100 text-brand-600' : 'bg-slate-100 text-slate-500 group-hover:text-slate-700'}`}>
                            <Globe className="w-4 h-4" />
                        </div>
                        <div>
-                          <div className={`text-sm font-semibold ${currentView === View.SEARCH ? 'text-brand-900' : 'text-slate-900'}`}>Discovery</div>
-                          <div className="text-xs text-slate-500 mt-0.5">Clinical Intelligence Search</div>
+                          <div className={`text-sm font-semibold ${[View.SEARCH, View.CHAT].includes(currentView) ? 'text-brand-900' : 'text-slate-900'}`}>Discovery</div>
+                          <div className="text-xs text-slate-500 mt-0.5">Clinical Intelligence Search & Chat</div>
                        </div>
                     </button>
                  </div>
@@ -365,11 +384,15 @@ const App: React.FC = () => {
               </nav>
             </>
           ) : (
-             <div className="flex items-center gap-2 text-sm text-slate-500">
-                <span className="font-bold text-slate-900">Clinical Intelligence</span>
-                <span className="text-slate-300">/</span>
-                <span>Trial Search</span>
-             </div>
+             <nav className="flex items-center gap-1">
+                <NavLink view={View.SEARCH} label="Search" />
+                {hasChatSessions && (
+                  <>
+                    <div className="h-px w-4 bg-gray-300 mx-1"></div>
+                    <NavLink view={View.CHAT} label="Chat" />
+                  </>
+                )}
+             </nav>
           )}
         </div>
 
@@ -389,11 +412,11 @@ const App: React.FC = () => {
 
           <div className="flex items-center gap-3 pl-2 border-l border-gray-200">
              <div className="text-right hidden md:block">
-                <p className="text-xs font-semibold text-slate-700">Sarah Chen</p>
-                <p className="text-[10px] text-slate-500">Lead Regulatory Affairs</p>
+                <p className="text-xs font-semibold text-slate-700">Manoj Maheshwar</p>
+                <p className="text-[10px] text-slate-500">Future Developer, VivPro</p>
              </div>
              <div className="w-8 h-8 rounded bg-gradient-to-tr from-brand-600 to-brand-400 flex items-center justify-center text-white text-xs font-bold border border-white shadow-sm ring-1 ring-gray-100">
-                SC
+                JG
              </div>
           </div>
         </div>
@@ -410,9 +433,9 @@ const App: React.FC = () => {
              }}>
         </div>
 
-        <div className="flex-1 overflow-auto p-6 relative z-10">
-          <div className="max-w-[1600px] mx-auto h-full flex flex-col">
-            
+        <div className={`flex-1 overflow-auto relative z-10 ${currentView === View.CHAT ? '' : 'p-6'}`}>
+          <div className={`h-full flex flex-col ${currentView === View.CHAT ? '' : 'max-w-[1600px] mx-auto'}`}>
+
             {currentView === View.DOCUMENTS && (
               <DocumentsView 
                 documents={documents}
@@ -436,7 +459,26 @@ const App: React.FC = () => {
             )}
 
             {currentView === View.SEARCH && (
-              <ClinicalSearch />
+              <ClinicalSearch
+                onCreateChat={(session) => {
+                  setPendingChatSession(session);
+                  setHasChatSessions(true);
+                  setCurrentView(View.CHAT);
+                }}
+              />
+            )}
+
+            {currentView === View.CHAT && (
+              <Chat
+                initialSession={pendingChatSession}
+                onSessionsChange={(hasAnySessions) => {
+                  setHasChatSessions(hasAnySessions);
+                  // If no sessions left, redirect to Search
+                  if (!hasAnySessions) {
+                    setCurrentView(View.SEARCH);
+                  }
+                }}
+              />
             )}
           </div>
         </div>
