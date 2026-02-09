@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { QueryAnalysis, Message, ClinicalTrial } from '../types';
+import { QueryAnalysis, Message, ClinicalTrial, MatchExplanation, SearchContext } from '../types';
 
 const getAiClient = () => {
   // Get API key from Vite environment variable
@@ -256,12 +256,12 @@ export const validateMedicalQuery = async (query: string): Promise<{
       model: 'gemini-flash-latest',
       contents: `Analyze this search query for a clinical trials database: "${query}"
 
-Is this query related to medical research, clinical trials, healthcare, drugs, diseases, or treatments?
+Is this query related to medical research, clinical trials, healthcare, drugs, diseases, treatments, or questions about trials?
 
 Provide a JSON response with:
 - score: 0-100 (0=completely unrelated to medicine, 100=clearly medical/clinical)
 - reason: Brief explanation (max 15 words)
-- isValid: true if score >= 40, false otherwise
+- isValid: true if score >= 30, false otherwise
 
 Examples:
 - "manoj" -> {"score": 5, "reason": "Appears to be a person's name, not medical", "isValid": false}
@@ -269,15 +269,18 @@ Examples:
 - "blood sugar disease" -> {"score": 85, "reason": "Describes medical condition conceptually", "isValid": true}
 - "john smith study" -> {"score": 10, "reason": "Person's name, not medical term", "isValid": false}
 - "Phase 3" -> {"score": 90, "reason": "Clinical trial terminology", "isValid": true}
+- "what are clinical trials" -> {"score": 80, "reason": "Question about clinical trials", "isValid": true}
+- "how many trials" -> {"score": 70, "reason": "Question about trial information", "isValid": true}
+- "tell me about studies" -> {"score": 65, "reason": "General question about research", "isValid": true}
 
-Be strict: only approve queries with clear medical/clinical intent.`,
+Be lenient: approve any query that could be related to clinical trials, medical research, or health-related questions.`,
       config: { responseMimeType: 'application/json' }
     });
 
     if (response.text) {
       const parsed = JSON.parse(response.text);
       const result = {
-        isValid: parsed.isValid === true || parsed.score >= 40,
+        isValid: parsed.isValid === true || parsed.score >= 30,
         score: parsed.score || 0,
         reason: parsed.reason || 'No reason provided'
       };
@@ -758,5 +761,322 @@ Example for "Which trials are recruiting?":
       answer: `I have ${contextTrials.length} clinical trials in context, but I'm having trouble generating a detailed response. Please try rephrasing your question.`,
       citations: contextTrials.slice(0, 2).map(t => t.nctId)
     };
+  }
+};
+
+// Match explanation cache
+const matchExplanationCache = new Map<string, { explanation: MatchExplanation; timestamp: number }>();
+const MATCH_EXPLANATION_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+
+/**
+ * Generate detailed match explanation for why a clinical trial matched a search query
+ * Includes: AI narrative, field matches, score breakdown, and ranking factors
+ *
+ * @param trial - The clinical trial that matched
+ * @param searchContext - Search query, mode, and analysis context
+ * @returns Detailed match explanation with all components
+ */
+export const generateMatchExplanation = async (
+  trial: ClinicalTrial,
+  searchContext: SearchContext
+): Promise<MatchExplanation> => {
+  // Create cache key
+  const cacheKey = `${trial.nctId}_${searchContext.query}_${searchContext.mode}`.toLowerCase();
+  const cached = matchExplanationCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < MATCH_EXPLANATION_CACHE_TTL) {
+    console.log('✓ Using cached match explanation');
+    return cached.explanation;
+  }
+
+  const ai = getAiClient();
+
+  // Build intelligent fallback explanation with actual field analysis
+  const buildFallbackExplanation = (): MatchExplanation => {
+    const queryTerms = searchContext.query.toLowerCase().split(/\s+/);
+    const fieldMatches: any[] = [];
+    const boostFactors: any[] = [];
+    const rankingFactors: string[] = [];
+
+    // Analyze conditions
+    if (trial.conditions && trial.conditions.length > 0) {
+      const matchedConditions = trial.conditions.filter(cond =>
+        queryTerms.some(term => cond.toLowerCase().includes(term) || term.includes(cond.toLowerCase().split(' ')[0]))
+      );
+      if (matchedConditions.length > 0) {
+        fieldMatches.push({
+          field: 'Conditions',
+          matchedTerms: queryTerms.filter(term => matchedConditions.some(c => c.toLowerCase().includes(term))),
+          snippets: matchedConditions.slice(0, 3)
+        });
+      }
+    }
+
+    // Analyze title
+    if (trial.title) {
+      const matchedTerms = queryTerms.filter(term => trial.title.toLowerCase().includes(term));
+      if (matchedTerms.length > 0) {
+        fieldMatches.push({
+          field: 'Title',
+          matchedTerms,
+          snippets: [trial.title.substring(0, 100) + (trial.title.length > 100 ? '...' : '')]
+        });
+      }
+    }
+
+    // Analyze interventions
+    if (trial.intervention || (trial.interventions && trial.interventions.length > 0)) {
+      const interventionText = trial.intervention || trial.interventions.map((i: any) => i.intervention_name || i.name || i).join(', ');
+      const matchedTerms = queryTerms.filter(term => interventionText.toLowerCase().includes(term));
+      if (matchedTerms.length > 0) {
+        fieldMatches.push({
+          field: 'Interventions',
+          matchedTerms,
+          snippets: [interventionText]
+        });
+      }
+    }
+
+    // Build boost factors
+    if (trial.status === 'RECRUITING' || trial.status === 'Recruiting') {
+      boostFactors.push({
+        name: 'Currently Recruiting',
+        multiplier: 1.5,
+        reason: 'Trial is actively enrolling participants'
+      });
+      rankingFactors.push('Currently recruiting participants');
+    }
+
+    if (trial.enrollment && trial.enrollment >= 500) {
+      boostFactors.push({
+        name: 'Large Enrollment',
+        multiplier: 1.2,
+        reason: `Over ${trial.enrollment} participants planned`
+      });
+      rankingFactors.push(`Large trial with ${trial.enrollment.toLocaleString()} participants`);
+    }
+
+    if (trial.phase && trial.phase.includes('3')) {
+      boostFactors.push({
+        name: 'Phase 3 Trial',
+        multiplier: 1.1,
+        reason: 'Advanced phase with efficacy endpoints'
+      });
+      rankingFactors.push('Phase 3 trial with established efficacy endpoints');
+    }
+
+    if (trial.sponsor && !trial.sponsor.includes('University') && !trial.sponsor.includes('Hospital')) {
+      boostFactors.push({
+        name: 'Industry Sponsor',
+        multiplier: 1.2,
+        reason: 'Sponsored by pharmaceutical company'
+      });
+      rankingFactors.push(`Industry-sponsored by ${trial.sponsor}`);
+    }
+
+    // Build narrative
+    const conditionText = trial.conditions && trial.conditions.length > 0 ? trial.conditions[0] : 'the target condition';
+    const narrative = `This ${trial.phase || 'clinical'} trial matched your search for "${searchContext.query}" through ${searchContext.mode} search analysis. The trial investigates ${conditionText} with ${trial.enrollment || 'participants'} enrolled across ${trial.locations?.length || 'multiple'} study sites. Key matches were found in ${fieldMatches.map(fm => fm.field.toLowerCase()).join(', ') || 'trial metadata'}, contributing to its ${trial.relevanceScore || 0}% relevance score. ${boostFactors.length > 0 ? `The ranking was enhanced by ${boostFactors.length} boost factor${boostFactors.length > 1 ? 's' : ''} including ${boostFactors[0]?.name.toLowerCase()}.` : ''}`;
+
+    return {
+      narrative,
+      fieldMatches,
+      scoreBreakdown: {
+        bm25Score: trial.matchDetails?.keywordScore || 0,
+        semanticScore: trial.matchDetails?.semanticScore || 0,
+        boostFactors,
+        totalScore: trial.relevanceScore || 0
+      },
+      rankingFactors: rankingFactors.length > 0 ? rankingFactors : trial.matchReasons || ['Matched search criteria'],
+      generatedAt: Date.now()
+    };
+  };
+
+  const fallbackExplanation = buildFallbackExplanation();
+
+  if (!ai) {
+    return fallbackExplanation;
+  }
+
+  try {
+    // Prepare trial context for AI analysis
+    const trialSummary = `NCT ID: ${trial.nctId}
+Title: ${trial.title}
+Phase: ${trial.phase}
+Status: ${trial.status}
+Enrollment: ${trial.enrollment}
+Conditions: ${trial.conditions.join(', ')}
+Interventions: ${Array.isArray(trial.interventions) ? trial.interventions.map((i: any) => i.intervention_name || i).join(', ') : trial.intervention}
+Description: ${trial.description}
+Sponsor: ${trial.sponsor}`;
+
+    // Prepare search context
+    const queryInfo = `Search Query: "${searchContext.query}"
+Search Mode: ${searchContext.mode}
+${searchContext.queryAnalysis ? `
+Extracted Filters:
+- Condition: ${searchContext.queryAnalysis.condition || 'none'}
+- Phase: ${searchContext.queryAnalysis.phase || 'none'}
+- Status: ${searchContext.queryAnalysis.status || 'none'}
+- Intervention: ${searchContext.queryAnalysis.intervention || 'none'}
+- Keywords: ${searchContext.queryAnalysis.keywords.join(', ')}
+` : ''}`;
+
+    // Prepare scoring info
+    const scoringInfo = `Relevance Score: ${trial.relevanceScore || 0}%
+Match Reasons: ${trial.matchReasons?.join(', ') || 'N/A'}
+${trial.matchDetails ? `
+Score Breakdown:
+- Keyword Score (BM25): ${trial.matchDetails.keywordScore.toFixed(2)}
+- Semantic Score: ${trial.matchDetails.semanticScore.toFixed(2)}
+- Filter Boost: ${trial.matchDetails.filterBoost.toFixed(2)}x
+` : ''}`;
+
+    console.log('🤖 Generating match explanation with Gemini...');
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-flash-latest',
+      contents: `You are a clinical trial search explainability AI. Analyze why this specific trial matched the user's search query and provide a DETAILED, SPECIFIC explanation.
+
+SEARCH CONTEXT:
+${queryInfo}
+
+TRIAL DETAILS:
+${trialSummary}
+
+SCORING INFORMATION:
+${scoringInfo}
+
+Your task is to generate a HIGHLY DETAILED match explanation:
+
+1. **Narrative** (3-4 sentences):
+   - SPECIFICALLY explain why THIS EXACT trial matched
+   - Mention SPECIFIC conditions, interventions, or trial characteristics
+   - Reference ACTUAL numbers (enrollment count, locations, etc.)
+   - Explain the search mode (${searchContext.mode}) and how it contributed
+
+2. **Field Matches**:
+   - Find ACTUAL query terms in ACTUAL trial fields
+   - For each match, provide the EXACT text snippet where it was found
+   - Be comprehensive - check title, conditions, interventions, description
+
+3. **Boost Factors**:
+   - Identify REAL factors: recruiting status (${trial.status}), enrollment size (${trial.enrollment}), phase (${trial.phase}), sponsor type
+   - Assign realistic multipliers (1.1x to 1.5x)
+   - Explain WHY each factor matters
+
+4. **Ranking Factors**:
+   - List SPECIFIC reasons with ACTUAL data
+   - Example: "Large trial with 1,200 participants" NOT "High enrollment"
+
+CRITICAL FORMATTING RULES:
+- Write in clean, readable prose - NO markdown formatting
+- DO NOT use asterisks, underscores, or any markdown syntax
+- DO NOT use bold (**text**) or italics (*text*)
+- Use plain text only with proper punctuation
+- BE SPECIFIC AND DETAILED - avoid generic statements
+
+Return JSON format:
+{
+  "narrative": "Plain text explanation of the match without markdown formatting",
+  "fieldMatches": [
+    {
+      "field": "conditions",
+      "matchedTerms": ["diabetes", "type 2"],
+      "snippets": ["Type 2 Diabetes Mellitus"]
+    }
+  ],
+  "scoreBreakdown": {
+    "bm25Score": 5.2,
+    "semanticScore": 0.78,
+    "boostFactors": [
+      {
+        "name": "Recruiting Status",
+        "multiplier": 1.5,
+        "reason": "Trial is currently recruiting participants"
+      }
+    ],
+    "totalScore": ${trial.relevanceScore || 0}
+  },
+  "rankingFactors": [
+    "High enrollment count (${trial.enrollment} participants)",
+    "Currently recruiting",
+    "Phase ${trial.phase} trial"
+  ]
+}
+
+Example for "diabetes treatment trials":
+{
+  "narrative": "This Phase 3 trial matched your search for diabetes treatment trials because it directly studies Type 2 Diabetes Mellitus with ${trial.enrollment} participants. The trial investigates insulin therapy interventions, which aligns with treatment-focused queries. Both keyword matching on the condition field and semantic similarity to treatment protocols contributed to this result.",
+  "fieldMatches": [
+    {
+      "field": "Conditions",
+      "matchedTerms": ["diabetes"],
+      "snippets": ["Type 2 Diabetes Mellitus", "Diabetic Complications"]
+    },
+    {
+      "field": "Interventions",
+      "matchedTerms": ["treatment"],
+      "snippets": ["Insulin therapy", "Treatment regimen"]
+    },
+    {
+      "field": "Title",
+      "matchedTerms": ["diabetes"],
+      "snippets": ["Effect of Insulin Treatment in Diabetes"]
+    }
+  ],
+  "scoreBreakdown": {
+    "bm25Score": 5.2,
+    "semanticScore": 0.78,
+    "boostFactors": [
+      {
+        "name": "Recruiting Status",
+        "multiplier": 1.5,
+        "reason": "Trial is currently recruiting participants"
+      },
+      {
+        "name": "Large Enrollment",
+        "multiplier": 1.2,
+        "reason": "Over 500 participants planned"
+      },
+      {
+        "name": "Industry Sponsor",
+        "multiplier": 1.2,
+        "reason": "Sponsored by major pharmaceutical company"
+      }
+    ],
+    "totalScore": ${trial.relevanceScore || 0}
+  },
+  "rankingFactors": [
+    "High enrollment count (1200 participants)",
+    "Currently recruiting participants",
+    "Phase 3 trial with established efficacy endpoints",
+    "Industry-sponsored study with rigorous design",
+    "Multiple medical centers across ${trial.locations?.length || 0} locations"
+  ]
+}`,
+      config: { responseMimeType: 'application/json' }
+    });
+
+    if (response.text) {
+      const parsed = JSON.parse(response.text);
+      const result: MatchExplanation = {
+        narrative: parsed.narrative || fallbackExplanation.narrative,
+        fieldMatches: parsed.fieldMatches || [],
+        scoreBreakdown: parsed.scoreBreakdown || fallbackExplanation.scoreBreakdown,
+        rankingFactors: parsed.rankingFactors || fallbackExplanation.rankingFactors,
+        generatedAt: Date.now()
+      };
+
+      // Cache the result
+      matchExplanationCache.set(cacheKey, { explanation: result, timestamp: Date.now() });
+
+      console.log(`✓ Match explanation generated for ${trial.nctId}`);
+      return result;
+    }
+
+    return fallbackExplanation;
+  } catch (e: any) {
+    console.error('Match explanation generation error:', e);
+    return fallbackExplanation;
   }
 };

@@ -77,6 +77,21 @@ export interface ClinicalTrial {
   completionDate: string;
   locations: { city: string; state: string; country: string }[];
   description: string;
+  // Extended fields from Elasticsearch
+  detailed_description?: string;
+  brief_summaries_description?: string;
+  official_title?: string;
+  gender?: string;
+  minimum_age?: string;
+  maximum_age?: string;
+  study_type?: string;
+  design_outcomes?: any[];
+  facilities?: any[];
+  sponsors?: any[];
+  interventions?: any[];
+  keywords?: string[];
+  primary_completion_date?: string;
+  quality_score?: number;
   // Dynamic fields for search results
   relevanceScore?: number;
   matchReasons?: string[];
@@ -97,6 +112,40 @@ export interface QueryAnalysis {
   ageGroup: string | null;
   enrollment_size: string | null;
   keywords: string[];
+}
+
+// --- Match Explanation Types ---
+
+export interface FieldMatch {
+  field: string;
+  matchedTerms: string[];
+  snippets: string[];
+}
+
+export interface ScoreBreakdown {
+  bm25Score: number;
+  semanticScore: number;
+  boostFactors: {
+    name: string;
+    multiplier: number;
+    reason: string;
+  }[];
+  totalScore: number;
+}
+
+export interface MatchExplanation {
+  narrative: string;
+  fieldMatches: FieldMatch[];
+  scoreBreakdown: ScoreBreakdown;
+  rankingFactors: string[];
+  generatedAt: number;
+}
+
+export interface SearchContext {
+  query: string;
+  mode: 'keyword' | 'semantic' | 'hybrid';
+  queryAnalysis?: QueryAnalysis | null;
+  filters?: any;
 }
 
 // --- Chat Types ---

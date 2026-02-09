@@ -1,14 +1,14 @@
 
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight, MessageSquare, ShieldCheck, ShieldAlert } from 'lucide-react';
+import { Search, Loader2, Sparkles, Filter, MapPin, Building2, Users, Calendar, ArrowRight, Brain, X, Check, Activity, Microscope, FlaskConical, Dna, AlertCircle, HelpCircle, History, Clock, ChevronRight, MessageSquare, ShieldCheck, ShieldAlert, FileText, Target, TrendingUp, Info, Zap } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations, generateRelatedQuestions } from '../services/geminiService';
+import { analyzeClinicalQuery, validateMedicalQuery, generateAnswerWithCitations, generateRelatedQuestions, generateMatchExplanation } from '../services/geminiService';
 import { executeSearch } from '../services/searchEngine';
 import { generateQueryEmbedding } from '../services/embeddingService';
 import { factCheckAnswer } from '../services/factCheckingService';
 import { DOMAIN_KNOWLEDGE } from '../constants';
-import { ClinicalTrial, QueryAnalysis, ChatSession, Message, VerificationStatus, VerificationResult, SearchVerificationIssue } from '../types';
+import { ClinicalTrial, QueryAnalysis, ChatSession, Message, VerificationStatus, VerificationResult, SearchVerificationIssue, MatchExplanation, SearchContext } from '../types';
 import { VerifiedText } from './VerifiedText';
 import { VerificationModal } from './VerificationModal';
 
@@ -104,6 +104,13 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
     statuses: new Set<string>(),
     sponsors: new Set<string>()
   });
+
+  // Protocol Detail Modal State
+  const [selectedTrial, setSelectedTrial] = useState<ClinicalTrial | null>(null);
+  const [showProtocolModal, setShowProtocolModal] = useState(false);
+  const [matchExplanation, setMatchExplanation] = useState<MatchExplanation | null>(null);
+  const [isLoadingExplanation, setIsLoadingExplanation] = useState(false);
+  const [activeTab, setActiveTab] = useState<'explanation' | 'overview' | 'eligibility' | 'locations' | 'sponsors'>('explanation');
 
   // Suggestion Chips Data
   const SUGGESTION_CHIPS = [
@@ -569,9 +576,9 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
                   <p className="text-sm text-slate-500 mt-1">
                     {validationError.score < 20
                       ? 'This query does not appear to be related to clinical research or medical topics.'
-                      : validationError.score < 40
-                      ? 'This query has low medical relevance. Please refine your search with clinical terms.'
-                      : 'Query validation failed. Try adding more specific medical terminology.'}
+                      : validationError.score < 30
+                      ? 'This query has low medical relevance. Please refine your search with clinical terms or questions about trials.'
+                      : 'Query validation failed. Try adding more specific medical terminology or questions about clinical trials.'}
                   </p>
                 </div>
               </div>
@@ -597,6 +604,10 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
                 <div className="flex items-start gap-2 text-sm text-slate-700">
                   <span className="text-slate-400 mt-0.5">•</span>
                   <span>Trial phases or status (e.g., Phase 3, recruiting)</span>
+                </div>
+                <div className="flex items-start gap-2 text-sm text-slate-700">
+                  <span className="text-slate-400 mt-0.5">•</span>
+                  <span>Questions about trials or research (e.g., what trials are available, how many studies)</span>
                 </div>
               </div>
 
@@ -755,9 +766,9 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
                 <div className="mt-8 flex flex-wrap items-center justify-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-100">
                     <span className="text-xs font-bold text-slate-400 uppercase tracking-wide mr-1">Trending:</span>
                     {SUGGESTION_CHIPS.map((chip, idx) => (
-                        <button 
+                        <button
                             key={idx}
-                            onClick={() => handleSearch(undefined, chip.label + " trials")}
+                            onClick={() => handleSearch(undefined, chip.label)}
                             className="group pl-3 pr-4 py-1.5 bg-white border border-slate-200 hover:border-brand-300 rounded-full text-xs font-medium text-slate-600 transition-all shadow-sm hover:shadow-md flex items-center gap-2"
                         >
                             {/* Uniform color for all icons */}
@@ -1187,7 +1198,27 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
                                 </div>
                             </div>
 
-                            <div className="bg-slate-50 px-6 py-3 border-t border-slate-100 flex justify-between items-center hover:bg-slate-100 transition-colors cursor-pointer group-hover:border-brand-100">
+                            <div
+                                className="bg-slate-50 px-6 py-3 border-t border-slate-100 flex justify-between items-center hover:bg-slate-100 transition-colors cursor-pointer group-hover:border-brand-100"
+                                onClick={async () => {
+                                    setSelectedTrial(trial);
+                                    setShowProtocolModal(true);
+                                    setActiveTab('explanation');
+                                    setIsLoadingExplanation(true);
+
+                                    // Generate match explanation
+                                    const searchContext: SearchContext = {
+                                        query,
+                                        mode: searchMode,
+                                        queryAnalysis: analysis,
+                                        filters: activeFilters
+                                    };
+
+                                    const explanation = await generateMatchExplanation(trial, searchContext);
+                                    setMatchExplanation(explanation);
+                                    setIsLoadingExplanation(false);
+                                }}
+                            >
                                 <span className="text-xs font-semibold text-slate-500 group-hover:text-brand-600 transition-colors">View full protocol details</span>
                                 <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-brand-600 group-hover:translate-x-1 transition-all" />
                             </div>
@@ -1224,6 +1255,506 @@ export const ClinicalSearch: React.FC<ClinicalSearchProps> = ({ onCreateChat }) 
         onClose={() => setSelectedIssue(null)}
         onOverride={handleOverrideIssue}
       />
+
+      {/* Protocol Detail Modal */}
+      <AnimatePresence>
+        {showProtocolModal && selectedTrial && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+            onClick={() => {
+              setShowProtocolModal(false);
+              setSelectedTrial(null);
+              setMatchExplanation(null);
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full h-[75vh] overflow-hidden flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Modal Header */}
+              <div className="px-6 py-4 border-b border-slate-200 bg-gradient-to-r from-brand-50 to-white">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <FileText className="w-5 h-5 text-brand-600 flex-shrink-0" />
+                      <h2 className="text-xl font-bold text-slate-900 truncate">
+                        {selectedTrial.title}
+                      </h2>
+                    </div>
+                    <div className="flex items-center gap-3 text-sm text-slate-600">
+                      <span className="font-mono font-semibold text-brand-600">
+                        {selectedTrial.nctId}
+                      </span>
+                      {selectedTrial.relevanceScore && (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1 bg-brand-100 rounded-full">
+                          <Target className="w-3.5 h-3.5 text-brand-600" />
+                          <span className="text-brand-700 font-semibold text-xs">
+                            {selectedTrial.relevanceScore}% Match
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowProtocolModal(false);
+                      setSelectedTrial(null);
+                      setMatchExplanation(null);
+                    }}
+                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors flex-shrink-0"
+                  >
+                    <X className="w-5 h-5 text-slate-500" />
+                  </button>
+                </div>
+
+                {/* Tabs */}
+                <div className="flex gap-1.5 mt-4 overflow-x-auto pb-1">
+                  {[
+                    { id: 'explanation', label: 'Match Explanation', icon: <Info className="w-3.5 h-3.5" /> },
+                    { id: 'overview', label: 'Overview', icon: <FileText className="w-3.5 h-3.5" /> },
+                    { id: 'eligibility', label: 'Eligibility', icon: <Users className="w-3.5 h-3.5" /> },
+                    { id: 'locations', label: 'Locations', icon: <MapPin className="w-3.5 h-3.5" /> },
+                    { id: 'sponsors', label: 'Sponsors', icon: <Building2 className="w-3.5 h-3.5" /> }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id as any)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs transition-all whitespace-nowrap ${
+                        activeTab === tab.id
+                          ? 'bg-brand-600 text-white shadow-md'
+                          : 'bg-white text-slate-600 hover:bg-slate-100'
+                      }`}
+                    >
+                      {tab.icon}
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Modal Body - Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {/* Match Explanation Tab */}
+                {activeTab === 'explanation' && (
+                  <div className="space-y-4">
+                    {isLoadingExplanation ? (
+                      <div className="flex items-center justify-center py-12">
+                        <div className="text-center">
+                          <Loader2 className="w-8 h-8 animate-spin text-brand-600 mx-auto mb-3" />
+                          <p className="text-slate-600">Generating match explanation...</p>
+                        </div>
+                      </div>
+                    ) : matchExplanation ? (
+                      <>
+                        {/* AI Narrative */}
+                        <div className="bg-gradient-to-br from-brand-50 to-blue-50 rounded-lg p-4 border border-brand-200">
+                          <div className="flex items-center gap-2 mb-2">
+                            <Sparkles className="w-4 h-4 text-brand-600" />
+                            <h3 className="font-semibold text-base text-slate-900">AI Explanation</h3>
+                          </div>
+                          <p className="text-sm text-slate-700 leading-relaxed">{matchExplanation.narrative}</p>
+                        </div>
+
+                        {/* Field Matches */}
+                        {matchExplanation.fieldMatches && matchExplanation.fieldMatches.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <Target className="w-4 h-4 text-slate-700" />
+                              <h3 className="font-semibold text-base text-slate-900">Search Term Matches</h3>
+                            </div>
+                            <div className="space-y-2">
+                              {matchExplanation.fieldMatches.map((match, idx) => (
+                                <div key={idx} className="bg-white rounded-lg border border-slate-200 p-3">
+                                  <div className="flex items-center gap-2 mb-1.5">
+                                    <div className="px-2 py-0.5 bg-brand-100 text-brand-700 rounded text-xs font-semibold">
+                                      {match.field}
+                                    </div>
+                                    <div className="flex flex-wrap gap-1">
+                                      {match.matchedTerms.map((term, i) => (
+                                        <span key={i} className="px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-medium">
+                                          {term}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="space-y-1">
+                                    {match.snippets.map((snippet, i) => (
+                                      <p key={i} className="text-xs text-slate-600 pl-3 border-l-2 border-brand-300">
+                                        {snippet}
+                                      </p>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Score Breakdown */}
+                        <div>
+                          <div className="flex items-center gap-2 mb-3">
+                            <TrendingUp className="w-4 h-4 text-slate-700" />
+                            <h3 className="font-semibold text-base text-slate-900">Score Breakdown</h3>
+                          </div>
+                          <div className="bg-white rounded-lg border border-slate-200 p-4 space-y-3">
+                            <div className="grid grid-cols-3 gap-4">
+                              <div className="text-center p-3 bg-blue-50 rounded-lg">
+                                <div className="text-xl font-bold text-blue-600">
+                                  {matchExplanation.scoreBreakdown.bm25Score.toFixed(2)}
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1">BM25 Keyword</div>
+                              </div>
+                              <div className="text-center p-3 bg-purple-50 rounded-lg">
+                                <div className="text-xl font-bold text-purple-600">
+                                  {matchExplanation.scoreBreakdown.semanticScore.toFixed(3)}
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1">Semantic Score</div>
+                              </div>
+                              <div className="text-center p-3 bg-brand-50 rounded-lg">
+                                <div className="text-xl font-bold text-brand-600">
+                                  {typeof matchExplanation.scoreBreakdown.totalScore === 'number' && matchExplanation.scoreBreakdown.totalScore < 10
+                                    ? matchExplanation.scoreBreakdown.totalScore.toFixed(2)
+                                    : Math.round(matchExplanation.scoreBreakdown.totalScore)}%
+                                </div>
+                                <div className="text-xs text-slate-600 mt-1">Total Match</div>
+                              </div>
+                            </div>
+
+                            {/* Boost Factors */}
+                            {matchExplanation.scoreBreakdown.boostFactors && matchExplanation.scoreBreakdown.boostFactors.length > 0 && (
+                              <div className="pt-3 border-t border-slate-200">
+                                <h4 className="font-semibold text-xs text-slate-700 mb-2 flex items-center gap-1.5">
+                                  <Zap className="w-3.5 h-3.5 text-yellow-500" />
+                                  Ranking Boosts
+                                </h4>
+                                <div className="space-y-1.5">
+                                  {matchExplanation.scoreBreakdown.boostFactors.map((factor, idx) => (
+                                    <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded text-xs">
+                                      <span className="text-slate-700 font-medium">{factor.name}</span>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs text-slate-500 max-w-[200px] truncate">{factor.reason}</span>
+                                        <span className="px-1.5 py-0.5 bg-yellow-100 text-yellow-800 rounded text-xs font-bold flex-shrink-0">
+                                          {factor.multiplier}x
+                                        </span>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Ranking Factors */}
+                        {matchExplanation.rankingFactors && matchExplanation.rankingFactors.length > 0 && (
+                          <div>
+                            <div className="flex items-center gap-2 mb-3">
+                              <Activity className="w-4 h-4 text-slate-700" />
+                              <h3 className="font-semibold text-base text-slate-900">Ranking Factors</h3>
+                            </div>
+                            <div className="bg-white rounded-lg border border-slate-200 p-4">
+                              <ul className="space-y-2">
+                                {matchExplanation.rankingFactors.map((factor, idx) => (
+                                  <li key={idx} className="flex items-start gap-2">
+                                    <Check className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                                    <span className="text-xs text-slate-700">{factor}</span>
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="text-center py-12 text-slate-500">
+                        <AlertCircle className="w-12 h-12 mx-auto mb-3 text-slate-300" />
+                        <p>No match explanation available</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-base text-slate-900 mb-3">Study Description</h3>
+                      <p className="text-sm text-slate-700 leading-relaxed">
+                        {selectedTrial.detailed_description || selectedTrial.brief_summaries_description || selectedTrial.description || 'No description available.'}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Phase</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.phase || 'N/A'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Status</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.status || 'N/A'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Enrollment</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.enrollment?.toLocaleString() || 'N/A'} participants</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Study Type</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.study_type || 'Interventional'}</div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold text-base text-slate-900 mb-3">Conditions</h3>
+                      <div className="flex flex-wrap gap-2">
+                        {selectedTrial.conditions && selectedTrial.conditions.length > 0 ? (
+                          selectedTrial.conditions.map((condition, idx) => (
+                            <span key={idx} className="px-3 py-1.5 bg-blue-100 text-blue-800 rounded-lg text-xs font-medium">
+                              {typeof condition === 'string' ? condition : condition}
+                            </span>
+                          ))
+                        ) : (
+                          <span className="text-slate-500 text-xs">No conditions listed</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold text-base text-slate-900 mb-3">Interventions</h3>
+                      <div className="space-y-2">
+                        {selectedTrial.interventions && selectedTrial.interventions.length > 0 ? (
+                          selectedTrial.interventions.map((intervention: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                              <div className="text-sm font-semibold text-purple-900">
+                                {intervention.intervention_name || intervention.name || intervention}
+                              </div>
+                              {intervention.intervention_type && (
+                                <div className="text-xs text-purple-700 mt-1">
+                                  Type: {intervention.intervention_type}
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        ) : selectedTrial.intervention ? (
+                          <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
+                            <div className="text-sm font-semibold text-purple-900">{selectedTrial.intervention}</div>
+                          </div>
+                        ) : (
+                          <span className="text-slate-500 text-xs">No interventions listed</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Eligibility Tab */}
+                {activeTab === 'eligibility' && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Gender</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.gender || 'All'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Minimum Age</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.minimum_age || 'N/A'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Maximum Age</div>
+                        <div className="text-sm font-semibold text-slate-900">{selectedTrial.maximum_age || 'N/A'}</div>
+                      </div>
+                    </div>
+
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Info className="w-4 h-4 text-blue-600" />
+                        <h3 className="font-semibold text-base text-blue-900">Eligibility Information</h3>
+                      </div>
+                      <p className="text-blue-800 text-xs">
+                        Detailed inclusion and exclusion criteria would be displayed here. In the actual clinical trial record, this section contains specific medical conditions, laboratory values, prior treatments, and other factors that determine participant eligibility.
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Locations & Timeline Tab */}
+                {activeTab === 'locations' && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Start Date</div>
+                        <div className="text-xs font-semibold text-slate-900">{selectedTrial.startDate || 'N/A'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Completion Date</div>
+                        <div className="text-xs font-semibold text-slate-900">{selectedTrial.completionDate || selectedTrial.primary_completion_date || 'N/A'}</div>
+                      </div>
+                      <div className="bg-slate-50 rounded-lg p-3">
+                        <div className="text-xs text-slate-500 mb-1">Study Duration</div>
+                        <div className="text-xs font-semibold text-slate-900">
+                          {selectedTrial.startDate && selectedTrial.completionDate
+                            ? `${Math.round((new Date(selectedTrial.completionDate).getTime() - new Date(selectedTrial.startDate).getTime()) / (1000 * 60 * 60 * 24 * 30))} months`
+                            : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <h3 className="font-semibold text-base text-slate-900 mb-3">Study Locations</h3>
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {selectedTrial.locations && selectedTrial.locations.length > 0 ? (
+                          selectedTrial.locations.map((location, idx) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-lg flex items-center gap-2">
+                              <MapPin className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                              <span className="text-xs text-slate-700">
+                                {location.city ? `${location.city}, ` : ''}
+                                {location.state ? `${location.state}, ` : ''}
+                                {location.country || 'Location'}
+                              </span>
+                            </div>
+                          ))
+                        ) : selectedTrial.facilities && selectedTrial.facilities.length > 0 ? (
+                          selectedTrial.facilities.map((facility: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-lg">
+                              <div className="flex items-center gap-2 mb-1">
+                                <MapPin className="w-4 h-4 text-brand-600 flex-shrink-0" />
+                                <span className="text-xs font-semibold text-slate-900">{facility.facility_name || facility.name || 'Facility'}</span>
+                              </div>
+                              <div className="text-xs text-slate-600 ml-6">
+                                {facility.city ? `${facility.city}, ` : ''}
+                                {facility.state ? `${facility.state}, ` : ''}
+                                {facility.country || ''}
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-center py-8 text-slate-500">
+                            <MapPin className="w-12 h-12 mx-auto mb-2 text-slate-300" />
+                            <p className="text-xs">No location information available</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Sponsors & Outcomes Tab */}
+                {activeTab === 'sponsors' && (
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="font-semibold text-base text-slate-900 mb-3">Lead Sponsor</h3>
+                      <div className="p-3 bg-brand-50 rounded-lg border border-brand-200">
+                        <div className="flex items-center gap-2">
+                          <Building2 className="w-4 h-4 text-brand-600" />
+                          <span className="text-sm font-semibold text-brand-900">{selectedTrial.sponsor || 'Not specified'}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedTrial.sponsors && selectedTrial.sponsors.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-base text-slate-900 mb-3">All Sponsors</h3>
+                        <div className="space-y-2">
+                          {selectedTrial.sponsors.map((sponsor: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-slate-50 rounded-lg">
+                              <div className="text-sm font-semibold text-slate-900">
+                                {sponsor.sponsor_name || sponsor.name || sponsor}
+                              </div>
+                              {sponsor.agency_class && (
+                                <div className="text-xs text-slate-600 mt-1">
+                                  {sponsor.agency_class}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedTrial.design_outcomes && selectedTrial.design_outcomes.length > 0 && (
+                      <div>
+                        <h3 className="font-semibold text-base text-slate-900 mb-3">Study Outcomes</h3>
+                        <div className="space-y-2">
+                          {selectedTrial.design_outcomes.map((outcome: any, idx: number) => (
+                            <div key={idx} className="p-3 bg-white border border-slate-200 rounded-lg">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <span className={`px-2 py-1 rounded text-xs font-semibold ${
+                                  outcome.outcome_type === 'PRIMARY'
+                                    ? 'bg-green-100 text-green-800'
+                                    : 'bg-blue-100 text-blue-800'
+                                }`}>
+                                  {outcome.outcome_type || 'OUTCOME'}
+                                </span>
+                              </div>
+                              <div className="text-sm text-slate-900 font-medium mb-1">
+                                {outcome.outcome_measure || outcome.measure || 'Outcome Measure'}
+                              </div>
+                              {outcome.outcome_description && (
+                                <div className="text-xs text-slate-600">
+                                  {outcome.outcome_description}
+                                </div>
+                              )}
+                              {outcome.outcome_time_frame && (
+                                <div className="text-xs text-slate-500 mt-1.5">
+                                  Time Frame: {outcome.outcome_time_frame}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {selectedTrial.quality_score && (
+                      <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-lg p-4 border border-green-200">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h3 className="font-semibold text-base text-green-900 mb-1">Quality Score</h3>
+                            <p className="text-xs text-green-700">Based on completeness, design, and sponsor quality</p>
+                          </div>
+                          <div className="text-2xl font-bold text-green-600">
+                            {selectedTrial.quality_score.toFixed(0)}
+                            <span className="text-sm text-green-500">/100</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex justify-between items-center">
+                <div className="text-xs text-slate-500">
+                  View on ClinicalTrials.gov: <a
+                    href={`https://clinicaltrials.gov/study/${selectedTrial.nctId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand-600 hover:text-brand-700 font-mono font-semibold underline"
+                  >
+                    {selectedTrial.nctId}
+                  </a>
+                </div>
+                <button
+                  onClick={() => {
+                    setShowProtocolModal(false);
+                    setSelectedTrial(null);
+                    setMatchExplanation(null);
+                  }}
+                  className="px-4 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-medium transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
